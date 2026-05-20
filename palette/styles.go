@@ -17,6 +17,9 @@ type Styles struct {
 	// SpinnerLabel styles the text next to the spinner glyph while a
 	// search is in flight.
 	SpinnerLabel lipgloss.Style
+	// FacetHeader styles the facet-completion hint shown in the footer
+	// row while the palette is completing a facet token.
+	FacetHeader lipgloss.Style
 	// Footer wraps the paginator row at the bottom.
 	Footer lipgloss.Style
 }
@@ -29,6 +32,7 @@ func DefaultStyles() Styles {
 		Title:        lipgloss.NewStyle().Bold(true),
 		Indent:       "  ",
 		SpinnerLabel: lipgloss.NewStyle().Faint(true),
+		FacetHeader:  lipgloss.NewStyle().Faint(true),
 		Footer:       lipgloss.NewStyle().Faint(true),
 	}
 }

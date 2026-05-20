@@ -70,6 +70,13 @@ type Mode struct {
 	// active mode changes — implementations should pass it through
 	// to their HTTP/DB call. Nil means the mode is purely synchronous.
 	Search func(ctx context.Context, query string) tea.Cmd
+
+	// Facets registers typeable "<Name>:<value>" filters for this
+	// mode. When the cursor sits inside such a token, the palette
+	// swaps the item list for a value picker scoped to the matching
+	// Facet. See palette.ParseFacets to apply parsed filters from a
+	// Mode's Items/Search closure.
+	Facets []Facet
 }
 
 // defaultPrompt is the fallback prompt glyph for modes that don't set
@@ -134,6 +141,12 @@ type Model struct {
 	searchGen    int                // increments on each input change for stale-tick rejection
 	searchCancel context.CancelFunc // cancels the in-flight Search context
 
+	// facet sub-state
+	facet        *facetCompletion
+	facetResults map[string][]Item  // per-facet cache for async Resolve
+	facetGen     int                // increments on each partial change
+	facetCancel  context.CancelFunc // cancels the in-flight Resolve context
+
 	title       string
 	placeholder string
 	cursor      int
@@ -167,16 +180,17 @@ func New(opts ...Option) Model {
 	pg.InactiveDot = "○ "
 
 	m := Model{
-		input:     ti,
-		spinner:   sp,
-		paginator: pg,
-		help:      help.New(),
-		modes:     []Mode{CommandMode, SearchMode},
-		delegate:  NewDefaultDelegate(),
-		results:   map[string][]Item{},
-		showHelp:  true,
-		KeyMap:    DefaultKeyMap(),
-		Styles:    DefaultStyles(),
+		input:        ti,
+		spinner:      sp,
+		paginator:    pg,
+		help:         help.New(),
+		modes:        []Mode{CommandMode, SearchMode},
+		delegate:     NewDefaultDelegate(),
+		results:      map[string][]Item{},
+		facetResults: map[string][]Item{},
+		showHelp:     true,
+		KeyMap:       DefaultKeyMap(),
+		Styles:       DefaultStyles(),
 	}
 	for _, o := range opts {
 		o(&m)
@@ -203,6 +217,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case SearchResultMsg:
 		return m.handleSearchResult(msg)
 
+	case facetDebounceMsg:
+		return m.handleFacetDebounce(msg)
+
+	case FacetResultMsg:
+		return m.handleFacetResult(msg)
+
 	case spinner.TickMsg:
 		if !m.loading && !m.pending {
 			return m, nil
@@ -215,6 +235,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Navigation and Execute keys are consumed by the palette and
 		// NOT forwarded to the textinput.
 		switch {
+		case key.Matches(msg, m.KeyMap.Cancel) && m.facet != nil:
+			m.clearFacet()
+			m.pending = false
+			m.loading = false
+			return m, nil
 		case key.Matches(msg, m.KeyMap.Down):
 			m.moveCursor(1)
 			return m, nil
@@ -228,6 +253,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.pageBy(-1)
 			return m, nil
 		case key.Matches(msg, m.KeyMap.Execute):
+			if m.facet != nil {
+				return m.applyFacetCompletion()
+			}
 			return m, m.execute()
 		}
 	}
@@ -237,11 +265,38 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 	if m.input.Value() != prev {
 		m.cursor = 0
-		if searchCmd := m.scheduleSearch(); searchCmd != nil {
-			return m, tea.Batch(cmd, searchCmd)
+		if reconcileCmd := m.reconcileInputState(); reconcileCmd != nil {
+			return m, tea.Batch(cmd, reconcileCmd)
 		}
 	}
 	return m, cmd
+}
+
+// reconcileInputState re-evaluates facet completion against the cursor
+// token, then schedules a mode Search (or cancels it when completion
+// is now active). Call after any input change.
+func (m *Model) reconcileInputState() tea.Cmd {
+	var cmds []tea.Cmd
+	if c := m.evaluateFacet(); c != nil {
+		cmds = append(cmds, c)
+	}
+	if m.facet == nil {
+		if c := m.scheduleSearch(); c != nil {
+			cmds = append(cmds, c)
+		}
+	} else if m.searchCancel != nil {
+		// Facet completion took over — drop any in-flight mode search.
+		m.searchCancel()
+		m.searchCancel = nil
+	}
+	switch len(cmds) {
+	case 0:
+		return nil
+	case 1:
+		return cmds[0]
+	default:
+		return tea.Batch(cmds...)
+	}
 }
 
 // scheduleSearch is called whenever the input value changes. It
@@ -361,10 +416,15 @@ func (m Model) execute() tea.Cmd {
 }
 
 // moveCursor shifts the selection by delta, wrapping at both ends. A
-// no-op when there are no items.
+// no-op when there are no items. Operates on the facet-completion
+// cursor when that sub-state is active.
 func (m *Model) moveCursor(delta int) {
 	n := len(m.Items())
 	if n == 0 {
+		return
+	}
+	if m.facet != nil {
+		m.facet.cursor = ((m.facet.cursor+delta)%n + n) % n
 		return
 	}
 	m.cursor = ((m.cursor+delta)%n + n) % n
@@ -382,9 +442,18 @@ func (m *Model) pageBy(delta int) {
 		return
 	}
 	totalPages := (n + m.pageSize - 1) / m.pageSize
-	currentPage := m.cursor / m.pageSize
+	cursor := m.cursor
+	if m.facet != nil {
+		cursor = m.facet.cursor
+	}
+	currentPage := cursor / m.pageSize
 	targetPage := ((currentPage+delta)%totalPages + totalPages) % totalPages
-	m.cursor = targetPage * m.pageSize
+	newCursor := targetPage * m.pageSize
+	if m.facet != nil {
+		m.facet.cursor = newCursor
+		return
+	}
+	m.cursor = newCursor
 }
 
 // InnerWidth is the usable width inside the Container border/padding.
@@ -407,6 +476,12 @@ func (m Model) InnerWidth() int {
 // The spinner row and paginator footer land in later milestones.
 func (m Model) View() string {
 	indent := m.Styles.Indent
+
+	// Render against the facet-completion cursor when that sub-state
+	// is active. Done here so the rest of View doesn't branch.
+	if m.facet != nil {
+		m.cursor = m.facet.cursor
+	}
 
 	var sections []string
 	if m.title != "" {
@@ -493,14 +568,36 @@ func (m Model) View() string {
 		sections = append(sections, "", strings.Join(lines, "\n"))
 	}
 
-	// Paginator footer — reserve the slot whenever pagination is on
-	// so the palette doesn't shrink when results fit on one page.
-	if m.pageSize > 0 {
-		m.paginator.TotalPages = totalPages
-		m.paginator.Page = m.cursor / m.pageSize
+	// Footer: paginator dots on the left, facet-completion hint on the
+	// right of the same line. Reserve the slot whenever pagination is on
+	// OR any configured mode declares facets, so the palette height
+	// doesn't jump when facets activate or modes switch.
+	hasFacetSlot := false
+	for _, md := range m.modes {
+		if len(md.Facets) > 0 {
+			hasFacetSlot = true
+			break
+		}
+	}
+	if m.pageSize > 0 || hasFacetSlot {
+		if m.pageSize > 0 {
+			m.paginator.TotalPages = totalPages
+			m.paginator.Page = m.cursor / m.pageSize
+		}
+		var parts []string
+		if m.pageSize > 0 && totalPages > 1 {
+			parts = append(parts, m.paginator.View())
+		}
+		if m.facet != nil {
+			hint := m.facet.facet.Desc
+			if hint == "" {
+				hint = m.facet.facet.Name + ":"
+			}
+			parts = append(parts, m.Styles.FacetHeader.Render(hint))
+		}
 		footer := ""
-		if totalPages > 1 {
-			footer = indent + m.paginator.View()
+		if len(parts) > 0 {
+			footer = indent + strings.Join(parts, " • ")
 		}
 		sections = append(sections, "", footer)
 	}
@@ -587,10 +684,17 @@ func (m *Model) SetWidth(w int) { m.width = w }
 // pagination is driven by WithPageSize.
 func (m *Model) SetHeight(h int) { m.height = h }
 
-// Items returns the candidate items for the currently active mode.
-// Returns nil when no mode is active or the mode declares no Items
-// function.
+// Items returns the candidate items currently visible in the palette.
+// During facet completion this is the active Facet's value list (sync
+// via Facet.Items or the cached async results); otherwise it's the
+// active Mode's items.
 func (m Model) Items() []Item {
+	if m.facet != nil {
+		if m.facet.facet.Items != nil {
+			return m.facet.facet.Items(m.facet.partial)
+		}
+		return m.facetResults[m.facet.facet.Name]
+	}
 	mode := m.Mode()
 	if mode.Items == nil {
 		return nil
@@ -621,10 +725,14 @@ func FilterFuzzy(items []Item, query string) []Item {
 // Selected returns the highlighted item, or nil if none.
 func (m Model) Selected() Item {
 	items := m.Items()
-	if m.cursor < 0 || m.cursor >= len(items) {
+	cursor := m.cursor
+	if m.facet != nil {
+		cursor = m.facet.cursor
+	}
+	if cursor < 0 || cursor >= len(items) {
 		return nil
 	}
-	return items[m.cursor]
+	return items[cursor]
 }
 
 // Page returns the current page (0-indexed).
@@ -634,14 +742,20 @@ func (m Model) Page() int { return m.paginator.Page }
 func (m Model) TotalPages() int { return m.paginator.TotalPages }
 
 // Reset clears the input and result state, and cancels any in-flight
-// Search.
+// Search or facet Resolve.
 func (m *Model) Reset() {
 	if m.searchCancel != nil {
 		m.searchCancel()
 		m.searchCancel = nil
 	}
+	if m.facetCancel != nil {
+		m.facetCancel()
+		m.facetCancel = nil
+	}
 	m.input.SetValue("")
 	m.results = map[string][]Item{}
+	m.facetResults = map[string][]Item{}
+	m.facet = nil
 	m.cursor = 0
 	m.paginator.Page = 0
 	m.loading = false
