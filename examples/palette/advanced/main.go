@@ -145,9 +145,9 @@ var commands = []palette.Item{
 
 // commandsMode is the ">"-prefixed sync command picker.
 var commandsMode = palette.Mode{
-	Name:   "command",
-	Match:  func(s string) bool { return strings.HasPrefix(s, ">") },
-	Query:  func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, ">")) },
+	Name:  "command",
+	Match: func(s string) bool { return strings.HasPrefix(s, ">") },
+	Query: func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, ">")) },
 	Items: func(_ palette.Model, q string) []palette.Item {
 		return palette.FilterFuzzy(commands, q)
 	},
