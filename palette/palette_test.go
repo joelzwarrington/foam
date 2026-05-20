@@ -825,8 +825,8 @@ func TestViewRendersModePrompt(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 
 	out := m.View()
-	if !strings.Contains(out, "◌") {
-		t.Errorf("View() missing default prompt glyph ◌, got:\n%s", out)
+	if !strings.Contains(out, "⣿") {
+		t.Errorf("View() missing default prompt glyph ⣿, got:\n%s", out)
 	}
 }
 
@@ -836,11 +836,10 @@ func TestViewSwapsSpinnerWhenLoading(t *testing.T) {
 	m.loading = true
 
 	out := m.View()
-	if strings.Contains(out, "◌") {
-		t.Errorf("View() rendered prompt glyph while loading, got:\n%s", out)
+	if strings.Contains(out, "⣿") {
+		t.Errorf("View() rendered idle prompt glyph while loading, got:\n%s", out)
 	}
-	// spinner.Dot's first frame is "⣾ " — confirm at least one
-	// braille spinner glyph appears.
+	// Dot frames are dense braille blocks — confirm one appears.
 	if !strings.ContainsAny(out, "⣾⣽⣻⢿⡿⣟⣯⣷") {
 		t.Errorf("View() missing spinner glyph while loading, got:\n%s", out)
 	}

@@ -33,7 +33,7 @@ type Mode struct {
 	// Prompt is the glyph rendered before the input field. Should be
 	// the same display width as the configured spinner so the input
 	// text doesn't shift when the spinner swaps in during search. An
-	// empty Prompt falls back to defaultPrompt ("◌ ").
+	// empty Prompt falls back to defaultPrompt ("⣿ ").
 	Prompt string
 
 	// Debounce is how long the palette waits after the input stops
@@ -68,8 +68,11 @@ type Mode struct {
 }
 
 // defaultPrompt is the fallback prompt glyph for modes that don't set
-// their own. Two cells wide to match the default spinner.
-const defaultPrompt = "◌ "
+// their own. A static full braille block — same character family as
+// the Dot spinner so idle and loading read as one shape morphing
+// rather than two unrelated glyphs. Two cells wide to match the
+// spinner.
+const defaultPrompt = "⣿ "
 
 // CommandMode is the default ">"-prefixed mode. Items are the
 // configured commands, fuzzy-filtered by the query.
@@ -147,6 +150,10 @@ func New(opts ...Option) Model {
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
+	// Tighter than the upstream 100 ms default so the spinner reads
+	// as smooth motion rather than a single-frame flicker on short
+	// searches.
+	sp.Spinner.FPS = 60 * time.Millisecond
 
 	pg := paginator.New()
 	pg.Type = paginator.Dots

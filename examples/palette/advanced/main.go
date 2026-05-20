@@ -2,7 +2,7 @@
 //
 //	>  command palette (sync, filters local commands)
 //	@  file picker    (sync, instant filter as you type)
-//	(nothing)  web search (async, 100ms debounce + ~100ms round-trip)
+//	(nothing)  web search (async, 100ms debounce + ~400ms round-trip)
 //
 // Use ↑/↓ to navigate, Enter to dispatch, ctrl+c to quit.
 package main
@@ -72,10 +72,9 @@ var pages = []webPage{
 // hardcoded corpus inline, so results update instantly with no
 // debounce and no spinner.
 var filesMode = palette.Mode{
-	Name:   "files",
-	Prompt: "◌ ",
-	Match:  func(s string) bool { return strings.HasPrefix(s, "@") },
-	Query:  func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, "@")) },
+	Name:  "files",
+	Match: func(s string) bool { return strings.HasPrefix(s, "@") },
+	Query: func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, "@")) },
 	Items: func(_ palette.Model, q string) []palette.Item {
 		items := make([]palette.Item, 0)
 		needle := strings.ToLower(q)
@@ -90,10 +89,9 @@ var filesMode = palette.Mode{
 
 // searchMode replaces the built-in palette.SearchMode for this demo.
 // It's the catch-all (no prefix) and does a debounced async web
-// search with a 1.2s simulated round-trip, demonstrating the spinner.
+// search with a 400 ms simulated round-trip, demonstrating the spinner.
 var searchMode = palette.Mode{
 	Name:     "search",
-	Prompt:   "◌ ",
 	Debounce: 100 * time.Millisecond,
 	Match:    nil, // catch-all
 	Query:    nil, // identity
@@ -101,7 +99,7 @@ var searchMode = palette.Mode{
 		return m.Results("search")
 	},
 	Search: func(ctx context.Context, q string) tea.Cmd {
-		return tea.Tick(100*time.Millisecond, func(_ time.Time) tea.Msg {
+		return tea.Tick(400*time.Millisecond, func(_ time.Time) tea.Msg {
 			if ctx.Err() != nil {
 				return nil
 			}

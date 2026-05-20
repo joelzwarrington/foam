@@ -53,8 +53,7 @@ func (m Model) Mode() Mode {
 
 // commandsMode is the same single-mode setup as examples/palette/simple.
 var commandsMode = palette.Mode{
-	Name:   "commands",
-	Prompt: "◌ ",
+	Name: "commands",
 	Items: func(m palette.Model, q string) []palette.Item {
 		return palette.FilterFuzzy(m.Commands(), q)
 	},

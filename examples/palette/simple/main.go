@@ -19,8 +19,7 @@ import (
 // the built-in CommandMode would, but over the host-configured
 // command list (m.Commands()).
 var commandsMode = palette.Mode{
-	Name:   "commands",
-	Prompt: "◌ ",
+	Name: "commands",
 	Items: func(m palette.Model, q string) []palette.Item {
 		return palette.FilterFuzzy(m.Commands(), q)
 	},
