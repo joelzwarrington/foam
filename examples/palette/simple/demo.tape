@@ -13,7 +13,7 @@ Set Theme "Catppuccin Mocha"
 Hide
 Type "go run ."
 Enter
-Sleep 1500ms
+Wait+Screen /quit/
 Show
 
 # Land on default selection (Quit). Fuzzy-filter without any prefix.

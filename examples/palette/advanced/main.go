@@ -180,7 +180,9 @@ func (m model) View() tea.View {
 		status += "   " + m.status
 	}
 	status += "   (ctrl+c to quit)"
-	return tea.NewView(m.palette.View() + status)
+	v := tea.NewView(m.palette.View() + status)
+	v.AltScreen = true
+	return v
 }
 
 func main() {

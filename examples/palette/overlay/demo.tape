@@ -13,7 +13,7 @@ Set Theme "Catppuccin Mocha"
 Hide
 Type "go run ."
 Enter
-Sleep 1500ms
+Wait+Screen /open palette/
 Show
 
 # Background is visible. Open the palette.
