@@ -24,6 +24,7 @@ func initialModel() model {
 			palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
 			palette.Command{ID: "quit", Name: "Quit", Desc: "Exit the program"},
 		}),
+		palette.WithPageSize(3),
 	)
 	p.Focus()
 	return model{palette: p}

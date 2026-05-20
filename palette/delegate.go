@@ -59,14 +59,16 @@ type DefaultDelegate struct {
 }
 
 // NewDefaultDelegate returns a DefaultDelegate with sensible defaults.
+// Selected rows are rendered with reverse-video so the highlight reads
+// against any terminal palette without picking a brand colour.
 func NewDefaultDelegate() DefaultDelegate {
 	return DefaultDelegate{
 		ShowDescription: true,
 		Styles: DelegateStyles{
 			Title:            lipgloss.NewStyle(),
 			Description:      lipgloss.NewStyle().Faint(true),
-			SelectedTitle:    lipgloss.NewStyle().Bold(true),
-			SelectedDesc:     lipgloss.NewStyle(),
+			SelectedTitle:    lipgloss.NewStyle().Reverse(true),
+			SelectedDesc:     lipgloss.NewStyle().Reverse(true).Faint(true),
 			SelectionMarker:  "▸ ",
 			UnselectedMarker: "  ",
 		},
@@ -89,8 +91,9 @@ func (d DefaultDelegate) Update(_ tea.Msg, _ *Model) tea.Cmd { return nil }
 
 // Render draws one item: a selection marker followed by the title, and
 // (when ShowDescription is on and the item exposes one) a faint
-// description line indented under the title. Text is truncated to the
-// palette's current width when known.
+// description line indented under the title. Selected rows fill the
+// palette's width so the highlight background reaches the right edge.
+// Text is truncated to the palette's current width when known.
 func (d DefaultDelegate) Render(w io.Writer, m Model, index int, item Item) {
 	s := &d.Styles
 
@@ -123,9 +126,26 @@ func (d DefaultDelegate) Render(w io.Writer, m Model, index int, item Item) {
 		}
 	}
 
-	_, _ = fmt.Fprintf(w, "%s%s", marker, titleStyle.Render(title))
+	titleLine := marker + title
+	descLine := ""
 	if d.ShowDescription && desc != "" {
-		pad := strings.Repeat(" ", lipgloss.Width(marker))
-		_, _ = fmt.Fprintf(w, "\n%s%s", pad, descStyle.Render(desc))
+		descLine = strings.Repeat(" ", lipgloss.Width(marker)) + desc
+	}
+
+	if isSelected && m.width > 0 {
+		titleLine = titleStyle.Width(m.width).Render(titleLine)
+		if descLine != "" {
+			descLine = descStyle.Width(m.width).Render(descLine)
+		}
+	} else {
+		titleLine = titleStyle.Render(titleLine)
+		if descLine != "" {
+			descLine = descStyle.Render(descLine)
+		}
+	}
+
+	_, _ = fmt.Fprint(w, titleLine)
+	if descLine != "" {
+		_, _ = fmt.Fprintf(w, "\n%s", descLine)
 	}
 }

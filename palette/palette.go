@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Mode is derived from the input value.
@@ -39,6 +40,7 @@ type Model struct {
 	delegate ItemDelegate
 	search   SearchFunc
 
+	title    string
 	cursor   int
 	pageSize int
 	loading  bool
@@ -93,26 +95,89 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// View renders the text input followed by the visible items, each
-// drawn through the configured ItemDelegate. The spinner row and
-// paginator footer land in later milestones; until then this is the
-// full output.
+// InnerWidth is the usable width inside the Container border/padding.
+// Returns 0 when the outer width has not yet been set.
+func (m Model) InnerWidth() int {
+	if m.width <= 0 {
+		return 0
+	}
+	inner := m.width - m.Styles.Container.GetHorizontalFrameSize()
+	if inner < 0 {
+		return 0
+	}
+	return inner
+}
+
+// View composes the palette layout: an optional title, the text
+// input, and the visible items rendered through the configured
+// ItemDelegate, wrapped in the Container style. Items are passed the
+// inner width so the delegate's selection background can fill the row.
+// The spinner row and paginator footer land in later milestones.
 func (m Model) View() string {
-	var b strings.Builder
-	b.WriteString(m.input.View())
+	indent := m.Styles.Indent
+
+	var sections []string
+	if m.title != "" {
+		sections = append(sections, indent+m.Styles.Title.Render(m.title), "")
+	}
+
+	// Size the textinput to the available row width so it doesn't
+	// overflow the container.
+	inner := m.InnerWidth()
+	if inner > 0 {
+		w := inner - lipgloss.Width(indent)
+		if w < 1 {
+			w = 1
+		}
+		m.input.SetWidth(w)
+	}
+	sections = append(sections, indent+m.input.View())
 
 	items := m.Items()
-	if len(items) == 0 {
-		return b.String()
+	desiredRows := 0
+	if m.pageSize > 0 {
+		desiredRows = m.pageSize * m.delegate.Height()
 	}
-	b.WriteString("\n")
-	for i, item := range items {
-		if i > 0 {
-			b.WriteString("\n")
+	if len(items) > 0 || desiredRows > 0 {
+		// Pass the inner width to the delegate so selected rows fill
+		// the full row. We mutate the local m (value receiver) — the
+		// caller's copy is unaffected.
+		rowModel := m
+		rowModel.width = inner
+
+		var lines []string
+		for i, item := range items {
+			var buf strings.Builder
+			m.delegate.Render(&buf, rowModel, i, item)
+			lines = append(lines, strings.Split(buf.String(), "\n")...)
 		}
-		m.delegate.Render(&b, m, i, item)
+
+		// When pageSize is set, pad or truncate to a stable height so
+		// the palette doesn't jump between modes with different item
+		// counts. Pagination chooses which items make it in (later
+		// milestone); here we just enforce the row budget.
+		if desiredRows > 0 {
+			for len(lines) < desiredRows {
+				lines = append(lines, "")
+			}
+			if len(lines) > desiredRows {
+				lines = lines[:desiredRows]
+			}
+		}
+
+		sections = append(sections, "", strings.Join(lines, "\n"))
 	}
-	return b.String()
+
+	body := strings.Join(sections, "\n")
+
+	// Pin the container's content width so lipgloss pads every row to
+	// the same width — otherwise short rows (title, spacers) don't
+	// reach the right border and it appears to be missing.
+	container := m.Styles.Container
+	if inner > 0 {
+		container = container.Width(inner)
+	}
+	return container.Render(body)
 }
 
 // Focus directs keyboard input to the palette.

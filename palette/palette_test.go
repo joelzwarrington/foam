@@ -177,13 +177,19 @@ func TestViewRendersInputAndItems(t *testing.T) {
 }
 
 func TestViewWithNoItems(t *testing.T) {
-	// SearchMode + empty results should render the input only (no
-	// trailing newlines, no blank lines).
-	m := New()
+	// SearchMode + empty results should render the input inside the
+	// container but no items list under it.
+	m := New(WithCommands([]Item{Command{Name: "open"}, Command{Name: "save"}}))
 	m.input.SetValue("hello")
+
 	out := m.View()
-	if strings.Count(out, "\n") != 0 {
-		t.Errorf("View() with no items should not add newlines, got %q", out)
+	if !strings.Contains(out, "hello") {
+		t.Errorf("View() missing input value, got %q", out)
+	}
+	for _, name := range []string{"open", "save"} {
+		if strings.Contains(out, name) {
+			t.Errorf("View() should not render commands in SearchMode, but found %q in:\n%s", name, out)
+		}
 	}
 }
 

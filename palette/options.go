@@ -10,6 +10,12 @@ func WithCommands(cmds []Item) Option {
 	return func(m *Model) { m.commands = cmds }
 }
 
+// WithTitle sets the optional section header rendered above the input.
+// Pass an empty string (the default) for no title row.
+func WithTitle(s string) Option {
+	return func(m *Model) { m.title = s }
+}
+
 // WithSearch wires up the async search function used in SearchMode.
 func WithSearch(fn SearchFunc) Option {
 	return func(m *Model) { m.search = fn }
