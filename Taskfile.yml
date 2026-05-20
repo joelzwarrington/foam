@@ -20,6 +20,12 @@ tasks:
       - task: lint
       - task: test
 
+  example:
+    desc: "Run an example. Usage: task example NAME=palette"
+    requires:
+      vars: [NAME]
+    cmd: go run ./examples/{{.NAME}}
+
   release:
     desc: "Tag and push a release. Usage: task release VERSION=1.2.3"
     silent: true
