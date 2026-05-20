@@ -19,3 +19,21 @@ tasks:
       - task: fmt
       - task: lint
       - task: test
+
+  release:
+    desc: "Tag and push a release. Usage: task release VERSION=1.2.3"
+    silent: true
+    requires:
+      vars: [VERSION]
+    cmds:
+      - |
+        set -euo pipefail
+        INPUT='{{.VERSION}}'
+        TAG="v${INPUT#v}"
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists" >&2
+          exit 1
+        fi
+        git tag -a "$TAG" -m "$TAG"
+        git push origin "$TAG"
+        echo "==> $TAG pushed"
