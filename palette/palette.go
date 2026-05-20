@@ -529,8 +529,22 @@ func (m Model) Results(modeName string) []Item {
 	return m.results[modeName]
 }
 
+// Commands returns the command list configured via WithCommands.
+// Useful when a custom Mode wants to filter the same list using
+// different prefix or matching semantics.
+func (m Model) Commands() []Item { return m.commands }
+
 // Loading reports whether a Search is currently in flight.
 func (m Model) Loading() bool { return m.loading }
+
+// SetWidth overrides the palette's outer width. Useful when the
+// palette is laid out manually (e.g., as a fixed-width modal overlay)
+// rather than filling the host's WindowSizeMsg.
+func (m *Model) SetWidth(w int) { m.width = w }
+
+// SetHeight overrides the palette's outer height. Currently advisory —
+// pagination is driven by WithPageSize.
+func (m *Model) SetHeight(h int) { m.height = h }
 
 // Items returns the candidate items for the currently active mode.
 // Returns nil when no mode is active or the mode declares no Items

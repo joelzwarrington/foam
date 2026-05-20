@@ -21,10 +21,28 @@ tasks:
       - task: test
 
   example:
-    desc: "Run an example. Usage: task example NAME=palette"
+    desc: "Run an example. Usage: task example NAME=palette/simple"
     requires:
       vars: [NAME]
     cmd: go run ./examples/{{.NAME}}
+
+  demo:
+    desc: "Regenerate demo GIFs. NAME=palette/simple for one; no NAME for all."
+    silent: true
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -n "{{.NAME}}" ]; then
+          tape="examples/{{.NAME}}/demo.tape"
+          test -f "$tape" || { echo "no tape at $tape" >&2; exit 1; }
+          (cd "$(dirname "$tape")" && vhs demo.tape)
+        else
+          shopt -s nullglob globstar
+          for tape in examples/**/demo.tape; do
+            echo "==> $tape"
+            (cd "$(dirname "$tape")" && vhs demo.tape)
+          done
+        fi
 
   release:
     desc: "Tag and push a release. Usage: task release VERSION=1.2.3"
