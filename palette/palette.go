@@ -68,6 +68,8 @@ func New(opts ...Option) Model {
 
 	pg := paginator.New()
 	pg.Type = paginator.Dots
+	pg.ActiveDot = "● "
+	pg.InactiveDot = "○ "
 
 	m := Model{
 		input:     ti,
@@ -110,6 +112,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(kp, m.KeyMap.Up):
 			m.moveCursor(-1)
+			return m, nil
+		case key.Matches(kp, m.KeyMap.NextPage):
+			m.pageBy(1)
+			return m, nil
+		case key.Matches(kp, m.KeyMap.PrevPage):
+			m.pageBy(-1)
 			return m, nil
 		case key.Matches(kp, m.KeyMap.Execute):
 			return m, m.execute()
@@ -179,6 +187,23 @@ func (m *Model) moveCursor(delta int) {
 	m.cursor = ((m.cursor+delta)%n + n) % n
 }
 
+// pageBy snaps the cursor to the start of the page delta away from
+// the current one, wrapping at the first and last page. No-op when
+// pagination is disabled (pageSize == 0) or there are no items.
+func (m *Model) pageBy(delta int) {
+	if m.pageSize <= 0 {
+		return
+	}
+	n := len(m.Items())
+	if n == 0 {
+		return
+	}
+	totalPages := (n + m.pageSize - 1) / m.pageSize
+	currentPage := m.cursor / m.pageSize
+	targetPage := ((currentPage+delta)%totalPages + totalPages) % totalPages
+	m.cursor = targetPage * m.pageSize
+}
+
 // InnerWidth is the usable width inside the Container border/padding.
 // Returns 0 when the outer width has not yet been set.
 func (m Model) InnerWidth() int {
@@ -222,24 +247,40 @@ func (m Model) View() string {
 	if m.pageSize > 0 {
 		desiredRows = m.pageSize * m.delegate.Height()
 	}
-	if len(items) > 0 || desiredRows > 0 {
+
+	// Slice items down to the current page when pagination is on.
+	pageItems := items
+	pageStart := 0
+	totalPages := 1
+	if m.pageSize > 0 && len(items) > 0 {
+		totalPages = (len(items) + m.pageSize - 1) / m.pageSize
+		currentPage := m.cursor / m.pageSize
+		pageStart = currentPage * m.pageSize
+		pageEnd := pageStart + m.pageSize
+		if pageEnd > len(items) {
+			pageEnd = len(items)
+		}
+		pageItems = items[pageStart:pageEnd]
+	}
+
+	if len(pageItems) > 0 || desiredRows > 0 {
 		// Pass the inner width to the delegate so selected rows fill
-		// the full row. We mutate the local m (value receiver) — the
-		// caller's copy is unaffected.
+		// the full row, and translate cursor to page-local space so
+		// the delegate's "is this index selected?" check works against
+		// the sliced view.
 		rowModel := m
 		rowModel.width = inner
+		rowModel.cursor = m.cursor - pageStart
 
 		var lines []string
-		for i, item := range items {
+		for i, item := range pageItems {
 			var buf strings.Builder
 			m.delegate.Render(&buf, rowModel, i, item)
 			lines = append(lines, strings.Split(buf.String(), "\n")...)
 		}
 
-		// When pageSize is set, pad or truncate to a stable height so
-		// the palette doesn't jump between modes with different item
-		// counts. Pagination chooses which items make it in (later
-		// milestone); here we just enforce the row budget.
+		// Pad or truncate to a stable height so the palette doesn't
+		// jump between modes with different item counts.
 		if desiredRows > 0 {
 			for len(lines) < desiredRows {
 				lines = append(lines, "")
@@ -250,6 +291,13 @@ func (m Model) View() string {
 		}
 
 		sections = append(sections, "", strings.Join(lines, "\n"))
+	}
+
+	// Paginator footer — only when there's more than one page.
+	if totalPages > 1 {
+		m.paginator.TotalPages = totalPages
+		m.paginator.Page = m.cursor / m.pageSize
+		sections = append(sections, "", indent+m.paginator.View())
 	}
 
 	if m.showHelp {

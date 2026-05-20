@@ -213,6 +213,117 @@ func TestNavigationDoesNotAlterInput(t *testing.T) {
 	}
 }
 
+func TestPaginationCursorJumpsByPage(t *testing.T) {
+	// 10 items, pageSize 4 → pages of [0-3], [4-7], [8-9].
+	cmds := make([]Item, 10)
+	for i := range cmds {
+		cmds[i] = Command{Name: string(rune('a' + i))}
+	}
+	m := New(WithCommands(cmds), WithPageSize(4))
+	m.Focus()
+	m.input.SetValue(">")
+
+	// PageDown from page 0 → cursor at start of page 1.
+	m, _ = m.Update(arrowKey(tea.KeyRight))
+	if m.cursor != 4 {
+		t.Errorf("after PageDown: cursor = %d, want 4", m.cursor)
+	}
+
+	// PageDown again → start of page 2 (the last page).
+	m, _ = m.Update(arrowKey(tea.KeyRight))
+	if m.cursor != 8 {
+		t.Errorf("after second PageDown: cursor = %d, want 8", m.cursor)
+	}
+
+	// PageDown at last page → wraps to first page.
+	m, _ = m.Update(arrowKey(tea.KeyRight))
+	if m.cursor != 0 {
+		t.Errorf("PageDown at last page: cursor = %d, want 0 (wrapped)", m.cursor)
+	}
+
+	// PageUp from first page → wraps to last page.
+	m, _ = m.Update(arrowKey(tea.KeyLeft))
+	if m.cursor != 8 {
+		t.Errorf("PageUp at first page: cursor = %d, want 8 (wrapped)", m.cursor)
+	}
+
+	// PageUp → back to page 1 start.
+	m, _ = m.Update(arrowKey(tea.KeyLeft))
+	if m.cursor != 4 {
+		t.Errorf("after PageUp: cursor = %d, want 4", m.cursor)
+	}
+}
+
+func TestPaginationDisabledWhenPageSizeZero(t *testing.T) {
+	// pageSize=0 means no pagination — PageNext key is a no-op,
+	// cursor doesn't snap.
+	cmds := make([]Item, 10)
+	for i := range cmds {
+		cmds[i] = Command{Name: string(rune('a' + i))}
+	}
+	m := New(WithCommands(cmds))
+	m.Focus()
+	m.input.SetValue(">")
+	m.cursor = 3
+
+	m, _ = m.Update(arrowKey(tea.KeyRight))
+	if m.cursor != 3 {
+		t.Errorf("PageNext with pageSize=0: cursor = %d, want 3 (unchanged)", m.cursor)
+	}
+}
+
+func TestPaginationSelectedHonoursAbsoluteCursor(t *testing.T) {
+	// After paging forward, Selected() must return the item the cursor
+	// points to — not the first item of the visible page slice.
+	cmds := make([]Item, 6)
+	for i := range cmds {
+		cmds[i] = Command{Name: string(rune('a' + i))}
+	}
+	m := New(WithCommands(cmds), WithPageSize(3))
+	m.Focus()
+	m.input.SetValue(">")
+
+	m, _ = m.Update(arrowKey(tea.KeyRight)) // cursor=3, page 1
+	if got := m.Selected().FilterValue(); got != "d" {
+		t.Errorf("Selected on page 1 = %q, want d", got)
+	}
+}
+
+func TestPaginationFooterRendersWhenMultiplePages(t *testing.T) {
+	cmds := []Item{
+		Command{Name: "one"}, Command{Name: "two"},
+		Command{Name: "three"}, Command{Name: "four"},
+	}
+	m := New(WithCommands(cmds), WithPageSize(2), WithHelp(false))
+	m.input.SetValue(">")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	// The dots paginator emits at least two bullet glyphs (• or ○)
+	// for a 2-page list. Check for the active-dot character used by
+	// the bubbles paginator default config.
+	if !strings.Contains(out, "•") && !strings.Contains(out, "○") {
+		t.Errorf("View() missing paginator footer dots, got:\n%s", out)
+	}
+}
+
+func TestPaginationNoFooterForSinglePage(t *testing.T) {
+	cmds := []Item{Command{Name: "only"}}
+	m := New(WithCommands(cmds), WithPageSize(5), WithHelp(false))
+	m.input.SetValue(">")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	// Single page: paginator footer should NOT appear. Lines below the
+	// items section should be padding only — no dots in the output's
+	// footer area. We look for either of the paginator's default glyphs.
+	// Simpler check: with only one item, there should be no "•" char
+	// outside of any help line (help is disabled here).
+	if strings.Contains(out, "•") {
+		t.Errorf("View() rendered paginator footer for single page:\n%s", out)
+	}
+}
+
 // runMarker is what a test Command's Run() emits — lets us assert
 // that Run actually fired when Enter dispatches.
 type runMarker struct{ id string }

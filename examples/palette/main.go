@@ -23,7 +23,15 @@ func initialModel() model {
 	p := palette.New(
 		palette.WithCommands([]palette.Item{
 			palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
+			palette.Command{ID: "new", Name: "New file", Desc: "Create an empty buffer"},
 			palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
+			palette.Command{ID: "save-as", Name: "Save As…", Desc: "Save the buffer to a new path"},
+			palette.Command{ID: "close", Name: "Close file", Desc: "Close the current buffer"},
+			palette.Command{ID: "find", Name: "Find in files", Desc: "Search across the project"},
+			palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
+			palette.Command{ID: "terminal", Name: "Toggle terminal", Desc: "Show or hide the integrated terminal"},
+			palette.Command{ID: "sidebar", Name: "Toggle sidebar", Desc: "Show or hide the file tree"},
+			palette.Command{ID: "reload", Name: "Reload window", Desc: "Restart the editor window"},
 			palette.Command{
 				ID:   "quit",
 				Name: "Quit",
@@ -31,7 +39,7 @@ func initialModel() model {
 				Run:  func() tea.Cmd { return tea.Quit },
 			},
 		}),
-		palette.WithPageSize(3),
+		palette.WithPageSize(4),
 	)
 	p.Focus()
 	return model{palette: p}
