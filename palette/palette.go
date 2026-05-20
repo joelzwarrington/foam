@@ -138,7 +138,8 @@ type Model struct {
 	placeholder string
 	cursor      int
 	pageSize    int
-	loading     bool
+	pending     bool // debounce scheduled but Search not yet dispatched
+	loading     bool // Search dispatched, awaiting SearchResultMsg
 	width       int
 	height      int
 	showHelp    bool
@@ -203,7 +204,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleSearchResult(msg)
 
 	case spinner.TickMsg:
-		if !m.loading {
+		if !m.loading && !m.pending {
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -246,6 +247,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // scheduleSearch is called whenever the input value changes. It
 // cancels any in-flight Search and, if the now-active mode has a
 // Search closure, schedules a debounce tick that will dispatch it.
+// The spinner runs from the moment the debounce is scheduled (pending)
+// through Search dispatch (loading) so it reflects "input not yet
+// reconciled with results" rather than just "Search in flight."
 func (m *Model) scheduleSearch() tea.Cmd {
 	// Cancel any in-flight search — we're either coalescing keystrokes
 	// or switching away from the mode that started it.
@@ -253,19 +257,28 @@ func (m *Model) scheduleSearch() tea.Cmd {
 		m.searchCancel()
 		m.searchCancel = nil
 	}
+	spinnerActive := m.loading || m.pending
 	m.loading = false
 
 	mode := m.Mode()
 	if mode.Search == nil {
+		m.pending = false
 		return nil
 	}
 	m.searchGen++
 	gen := m.searchGen
 	name := mode.Name
 	d := mode.Debounce
-	return tea.Tick(d, func(_ time.Time) tea.Msg {
+	tickCmd := tea.Tick(d, func(_ time.Time) tea.Msg {
 		return debounceMsg{mode: name, gen: gen}
 	})
+	m.pending = true
+	if spinnerActive {
+		// Spinner tick chain already running; don't reseed it or the
+		// glyph advances twice per frame.
+		return tickCmd
+	}
+	return tea.Batch(tickCmd, m.spinner.Tick)
 }
 
 // handleDebounce dispatches the active mode's Search closure when the
@@ -281,8 +294,10 @@ func (m Model) handleDebounce(msg debounceMsg) (Model, tea.Cmd) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.searchCancel = cancel
+	m.pending = false
 	m.loading = true
-	return m, tea.Batch(mode.Search(ctx, m.Query()), m.spinner.Tick)
+	// Spinner is already ticking from scheduleSearch — no need to reseed.
+	return m, mode.Search(ctx, m.Query())
 }
 
 // handleSearchResult stores result items in the per-mode cache and
@@ -404,7 +419,7 @@ func (m Model) View() string {
 	if glyph == "" {
 		glyph = defaultPrompt
 	}
-	if m.loading {
+	if m.loading || m.pending {
 		glyph = m.spinner.View()
 	}
 
@@ -630,4 +645,5 @@ func (m *Model) Reset() {
 	m.cursor = 0
 	m.paginator.Page = 0
 	m.loading = false
+	m.pending = false
 }

@@ -415,15 +415,20 @@ func TestSearchDebounceDispatchesAfterTick(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("scheduleSearch returned nil; expected a debounce tick cmd")
 	}
-
-	// The cmd is a tea.Tick(0, ...) that fires a debounceMsg.
-	dbMsg, ok := cmd().(debounceMsg)
-	if !ok {
-		t.Fatalf("debounce cmd produced %T, want debounceMsg", cmd())
+	if !m.pending {
+		t.Error("expected pending=true after scheduling search; spinner needs it during debounce window")
 	}
+
+	// scheduleSearch returns a batch of (debounce tick, spinner.Tick) on
+	// the first scheduling so the spinner starts ticking before Search
+	// dispatches.
+	dbMsg := findDebounceMsg(t, cmd)
 
 	// Feed the debounceMsg back; this should dispatch the Search.
 	m, dispatchCmd := m.Update(dbMsg)
+	if m.pending {
+		t.Error("expected pending=false after debounce dispatch")
+	}
 	if !m.loading {
 		t.Error("expected loading=true after debounce dispatch")
 	}
@@ -431,18 +436,11 @@ func TestSearchDebounceDispatchesAfterTick(t *testing.T) {
 		t.Fatal("expected a search cmd after debounce")
 	}
 
-	// Drain the batch (search cmd + spinner.Tick); the search cmd
-	// produces a SearchResultMsg.
-	batch, ok := dispatchCmd().(tea.BatchMsg)
+	// dispatchCmd is the Search closure (spinner already ticks from the
+	// scheduleSearch batch, so handleDebounce doesn't re-seed it).
+	resultMsg, ok := dispatchCmd().(SearchResultMsg)
 	if !ok {
-		t.Fatalf("dispatch cmd produced %T, want tea.BatchMsg", dispatchCmd())
-	}
-
-	var resultMsg SearchResultMsg
-	for _, c := range batch {
-		if rm, ok := c().(SearchResultMsg); ok {
-			resultMsg = rm
-		}
+		t.Fatalf("dispatch cmd produced %T, want SearchResultMsg", dispatchCmd())
 	}
 	if resultMsg.Mode != "files" || resultMsg.Query != "foo" {
 		t.Errorf("SearchResultMsg = %+v, want Mode=files Query=foo", resultMsg)
@@ -456,6 +454,27 @@ func TestSearchDebounceDispatchesAfterTick(t *testing.T) {
 	if got := m.Results("files"); len(got) != 1 || got[0].FilterValue() != "hit" {
 		t.Errorf("Results(files) = %v, want [hit]", got)
 	}
+}
+
+// findDebounceMsg extracts the debounceMsg from cmd's output, whether
+// cmd is the raw tick or a batch wrapping (tick, spinner.Tick).
+func findDebounceMsg(t *testing.T, cmd tea.Cmd) debounceMsg {
+	t.Helper()
+	msg := cmd()
+	if db, ok := msg.(debounceMsg); ok {
+		return db
+	}
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("cmd produced %T, want debounceMsg or tea.BatchMsg", msg)
+	}
+	for _, c := range batch {
+		if db, ok := c().(debounceMsg); ok {
+			return db
+		}
+	}
+	t.Fatal("no debounceMsg in batch")
+	return debounceMsg{}
 }
 
 func TestSearchStaleDebounceIgnored(t *testing.T) {
@@ -474,6 +493,9 @@ func TestSearchStaleDebounceIgnored(t *testing.T) {
 	m, dispatch := m.Update(debounceMsg{mode: "files", gen: 1})
 	if m.loading {
 		t.Error("loading=true after stale debounce; expected ignored")
+	}
+	if !m.pending {
+		t.Error("pending=false after stale debounce; expected unchanged (newer debounce still in flight)")
 	}
 	if dispatch != nil {
 		t.Error("dispatch should be nil for stale debounce")
@@ -514,7 +536,7 @@ func TestSearchModeSwitchCancelsInFlight(t *testing.T) {
 	m := New(WithModes(mode, SearchMode))
 	m.input.SetValue("@foo")
 	cmd := m.scheduleSearch()
-	dbMsg := cmd().(debounceMsg)
+	dbMsg := findDebounceMsg(t, cmd)
 	m, _ = m.Update(dbMsg)
 
 	if capturedCtx == nil {
@@ -721,6 +743,7 @@ func TestReset(t *testing.T) {
 	m.cursor = 3
 	m.paginator.Page = 2
 	m.loading = true
+	m.pending = true
 
 	m.Reset()
 
@@ -738,6 +761,9 @@ func TestReset(t *testing.T) {
 	}
 	if m.loading {
 		t.Error("loading = true after Reset, want false")
+	}
+	if m.pending {
+		t.Error("pending = true after Reset, want false")
 	}
 }
 
@@ -842,6 +868,22 @@ func TestViewSwapsSpinnerWhenLoading(t *testing.T) {
 	// Dot frames are dense braille blocks — confirm one appears.
 	if !strings.ContainsAny(out, "⣾⣽⣻⢿⡿⣟⣯⣷") {
 		t.Errorf("View() missing spinner glyph while loading, got:\n%s", out)
+	}
+}
+
+// The spinner should also run while a debounce is queued so users see
+// "I heard you typing" feedback, not just "Search is running."
+func TestViewSwapsSpinnerWhilePending(t *testing.T) {
+	m := New()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	m.pending = true
+
+	out := m.View()
+	if strings.Contains(out, "⣿") {
+		t.Errorf("View() rendered idle prompt glyph while pending, got:\n%s", out)
+	}
+	if !strings.ContainsAny(out, "⣾⣽⣻⢿⡿⣟⣯⣷") {
+		t.Errorf("View() missing spinner glyph while pending, got:\n%s", out)
 	}
 }
 
