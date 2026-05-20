@@ -466,11 +466,16 @@ func (m Model) View() string {
 		sections = append(sections, "", strings.Join(lines, "\n"))
 	}
 
-	// Paginator footer — only when there's more than one page.
-	if totalPages > 1 {
+	// Paginator footer — reserve the slot whenever pagination is on
+	// so the palette doesn't shrink when results fit on one page.
+	if m.pageSize > 0 {
 		m.paginator.TotalPages = totalPages
 		m.paginator.Page = m.cursor / m.pageSize
-		sections = append(sections, "", indent+m.paginator.View())
+		footer := ""
+		if totalPages > 1 {
+			footer = indent + m.paginator.View()
+		}
+		sections = append(sections, "", footer)
 	}
 
 	if m.showHelp {
