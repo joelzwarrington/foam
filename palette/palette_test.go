@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/paginator"
@@ -155,6 +156,35 @@ func TestPageSizeZeroSkipsPaginatorPerPage(t *testing.T) {
 
 func TestCommandImplementsDefaultItem(t *testing.T) {
 	var _ DefaultItem = Command{Name: "x", Desc: "y"}
+}
+
+func TestViewRendersInputAndItems(t *testing.T) {
+	m := New(WithCommands([]Item{
+		Command{Name: "open", Desc: "open it"},
+		Command{Name: "save"},
+	}))
+	m.input.SetValue(">")
+	m.width = 40
+
+	out := m.View()
+
+	// Both command titles should appear in the rendered output.
+	for _, want := range []string{"open", "save"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("View() missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+}
+
+func TestViewWithNoItems(t *testing.T) {
+	// SearchMode + empty results should render the input only (no
+	// trailing newlines, no blank lines).
+	m := New()
+	m.input.SetValue("hello")
+	out := m.View()
+	if strings.Count(out, "\n") != 0 {
+		t.Errorf("View() with no items should not add newlines, got %q", out)
+	}
 }
 
 func TestDefaultKeyMapHasBindings(t *testing.T) {

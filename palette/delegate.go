@@ -3,10 +3,14 @@ package palette
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
+
+const ellipsis = "…"
 
 // Item is anything that can appear in the palette list. Both predefined
 // commands and async search results implement it.
@@ -47,15 +51,17 @@ type DelegateStyles struct {
 }
 
 // DefaultDelegate renders DefaultItems with a title/description layout
-// and selection highlighting. The actual rendering is implemented in a
-// later milestone — this struct holds the configuration surface.
+// and a selection marker. When ShowDescription is false, only the
+// title line is drawn.
 type DefaultDelegate struct {
-	Styles DelegateStyles
+	Styles          DelegateStyles
+	ShowDescription bool
 }
 
 // NewDefaultDelegate returns a DefaultDelegate with sensible defaults.
 func NewDefaultDelegate() DefaultDelegate {
 	return DefaultDelegate{
+		ShowDescription: true,
 		Styles: DelegateStyles{
 			Title:            lipgloss.NewStyle(),
 			Description:      lipgloss.NewStyle().Faint(true),
@@ -67,8 +73,13 @@ func NewDefaultDelegate() DefaultDelegate {
 	}
 }
 
-// Height reports one row per item by default.
-func (d DefaultDelegate) Height() int { return 1 }
+// Height reports two rows when ShowDescription is on, one otherwise.
+func (d DefaultDelegate) Height() int {
+	if d.ShowDescription {
+		return 2
+	}
+	return 1
+}
 
 // Spacing reports zero blank rows between items by default.
 func (d DefaultDelegate) Spacing() int { return 0 }
@@ -76,16 +87,45 @@ func (d DefaultDelegate) Spacing() int { return 0 }
 // Update is a no-op by default. Override by wrapping or replacing.
 func (d DefaultDelegate) Update(_ tea.Msg, _ *Model) tea.Cmd { return nil }
 
-// Render is a placeholder. The real layout (selection marker, title,
-// description, truncation) lands in the delegate milestone.
+// Render draws one item: a selection marker followed by the title, and
+// (when ShowDescription is on and the item exposes one) a faint
+// description line indented under the title. Text is truncated to the
+// palette's current width when known.
 func (d DefaultDelegate) Render(w io.Writer, m Model, index int, item Item) {
-	marker := d.Styles.UnselectedMarker
-	if index == m.cursor {
-		marker = d.Styles.SelectionMarker
-	}
+	s := &d.Styles
+
+	var title, desc string
 	if di, ok := item.(DefaultItem); ok {
-		_, _ = fmt.Fprintf(w, "%s%s\n", marker, di.Title())
-		return
+		title = di.Title()
+		desc = di.Description()
+	} else {
+		title = item.FilterValue()
 	}
-	_, _ = fmt.Fprintf(w, "%s%s\n", marker, item.FilterValue())
+
+	isSelected := index == m.cursor
+	marker := s.UnselectedMarker
+	titleStyle := s.Title
+	descStyle := s.Description
+	if isSelected {
+		marker = s.SelectionMarker
+		titleStyle = s.SelectedTitle
+		descStyle = s.SelectedDesc
+	}
+
+	if m.width > 0 {
+		avail := m.width - lipgloss.Width(marker)
+		if avail < 1 {
+			avail = 1
+		}
+		title = ansi.Truncate(title, avail, ellipsis)
+		if desc != "" {
+			desc = ansi.Truncate(desc, avail, ellipsis)
+		}
+	}
+
+	_, _ = fmt.Fprintf(w, "%s%s", marker, titleStyle.Render(title))
+	if d.ShowDescription && desc != "" {
+		pad := strings.Repeat(" ", lipgloss.Width(marker))
+		_, _ = fmt.Fprintf(w, "\n%s%s", pad, descStyle.Render(desc))
+	}
 }

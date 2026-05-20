@@ -42,6 +42,8 @@ type Model struct {
 	cursor   int
 	pageSize int
 	loading  bool
+	width    int
+	height   int
 
 	KeyMap KeyMap
 	Styles Styles
@@ -78,19 +80,39 @@ func New(opts ...Option) Model {
 // command — callers compose it into their own program's Init.
 func (m Model) Init() tea.Cmd { return nil }
 
-// Update is a placeholder pass-through to the textinput. Message
-// routing (mode switching, debouncing, spinner ticks, pagination keys)
-// is implemented in later milestones.
+// Update is a placeholder pass-through to the textinput, plus
+// terminal-size tracking. Message routing (mode switching, debouncing,
+// spinner ticks, pagination keys) is implemented in later milestones.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = ws.Width
+		m.height = ws.Height
+	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
 }
 
-// View is a placeholder. It renders only the text input; the spinner
-// row, item list, and paginator footer are added in later milestones.
+// View renders the text input followed by the visible items, each
+// drawn through the configured ItemDelegate. The spinner row and
+// paginator footer land in later milestones; until then this is the
+// full output.
 func (m Model) View() string {
-	return m.input.View()
+	var b strings.Builder
+	b.WriteString(m.input.View())
+
+	items := m.Items()
+	if len(items) == 0 {
+		return b.String()
+	}
+	b.WriteString("\n")
+	for i, item := range items {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		m.delegate.Render(&b, m, i, item)
+	}
+	return b.String()
 }
 
 // Focus directs keyboard input to the palette.
