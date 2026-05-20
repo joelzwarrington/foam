@@ -875,6 +875,31 @@ func TestFullHelpGroups(t *testing.T) {
 	}
 }
 
+// TestNewNoOptionsRendersSafely guards the empty-default mode: with no
+// WithModes (and no other options), New() must produce a Model whose
+// common methods don't panic. The palette won't be useful — it has no
+// items — but it must still render cleanly so hosts can wire it up
+// incrementally without crashing.
+func TestNewNoOptionsRendersSafely(t *testing.T) {
+	m := New()
+	m.Focus()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	m, _ = m.Update(typeKey(t, "a"))
+
+	if got := m.Items(); got != nil {
+		t.Errorf("Items() = %v, want nil for empty default mode", got)
+	}
+	if got := m.Selected(); got != nil {
+		t.Errorf("Selected() = %v, want nil when there are no items", got)
+	}
+	if got := m.Mode().Name; got != "default" {
+		t.Errorf("Mode().Name = %q, want %q", got, "default")
+	}
+	if out := m.View(); out == "" {
+		t.Error("View() returned empty string")
+	}
+}
+
 func TestViewRendersModePrompt(t *testing.T) {
 	m := New()
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
