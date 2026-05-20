@@ -675,6 +675,50 @@ func TestFullHelpGroups(t *testing.T) {
 	}
 }
 
+func TestViewRendersModePrompt(t *testing.T) {
+	m := New()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	if !strings.Contains(out, "◌") {
+		t.Errorf("View() missing default prompt glyph ◌, got:\n%s", out)
+	}
+}
+
+func TestViewSwapsSpinnerWhenLoading(t *testing.T) {
+	m := New()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	m.loading = true
+
+	out := m.View()
+	if strings.Contains(out, "◌") {
+		t.Errorf("View() rendered prompt glyph while loading, got:\n%s", out)
+	}
+	// spinner.Dot's first frame is "⣾ " — confirm at least one
+	// braille spinner glyph appears.
+	if !strings.ContainsAny(out, "⣾⣽⣻⢿⡿⣟⣯⣷") {
+		t.Errorf("View() missing spinner glyph while loading, got:\n%s", out)
+	}
+}
+
+func TestCustomModePrompt(t *testing.T) {
+	custom := Mode{
+		Name:   "files",
+		Prompt: "@ ",
+		Match:  func(s string) bool { return strings.HasPrefix(s, "@") },
+		Query:  func(s string) string { return strings.TrimPrefix(s, "@") },
+		Items:  func(_ Model, _ string) []Item { return nil },
+	}
+	m := New(WithModes(custom, SearchMode))
+	m.input.SetValue("@foo")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	if !strings.Contains(out, "@ ") {
+		t.Errorf("View() missing custom mode prompt '@ ', got:\n%s", out)
+	}
+}
+
 func TestViewIncludesHelp(t *testing.T) {
 	m := New(WithCommands([]Item{Command{Name: "open"}}))
 	m.input.SetValue(">")

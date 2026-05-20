@@ -27,6 +27,12 @@ type Mode struct {
 	// Not rendered by the palette itself.
 	Name string
 
+	// Prompt is the glyph rendered before the input field. Should be
+	// the same display width as the configured spinner so the input
+	// text doesn't shift when the spinner swaps in during search. An
+	// empty Prompt falls back to defaultPrompt ("◌ ").
+	Prompt string
+
 	// Match reports whether this mode applies to the given raw input.
 	// A nil Match matches anything.
 	Match func(input string) bool
@@ -41,10 +47,15 @@ type Mode struct {
 	Items func(m Model, query string) []Item
 }
 
+// defaultPrompt is the fallback prompt glyph for modes that don't set
+// their own. Two cells wide to match the default spinner.
+const defaultPrompt = "◌ "
+
 // CommandMode is the default ">"-prefixed mode. Items are the
 // configured commands, fuzzy-filtered by the query.
 var CommandMode = Mode{
-	Name: "command",
+	Name:   "command",
+	Prompt: defaultPrompt,
 	Match: func(input string) bool {
 		return strings.HasPrefix(input, ">")
 	},
@@ -60,10 +71,11 @@ var CommandMode = Mode{
 // claimed by an earlier mode and surfaces the most recent async
 // search results.
 var SearchMode = Mode{
-	Name:  "search",
-	Match: nil, // nil = catch-all
-	Query: nil, // nil = identity
-	Items: func(m Model, _ string) []Item { return m.results },
+	Name:   "search",
+	Prompt: defaultPrompt,
+	Match:  nil, // nil = catch-all
+	Query:  nil, // nil = identity
+	Items:  func(m Model, _ string) []Item { return m.results },
 }
 
 // SearchFunc is the caller-provided async search. It returns a tea.Cmd
@@ -270,17 +282,27 @@ func (m Model) View() string {
 		sections = append(sections, indent+m.Styles.Title.Render(m.title), "")
 	}
 
+	// Pick the leading glyph: the spinner while a search is pending,
+	// otherwise the active mode's prompt (or the global default).
+	glyph := m.Mode().Prompt
+	if glyph == "" {
+		glyph = defaultPrompt
+	}
+	if m.loading {
+		glyph = m.spinner.View()
+	}
+
 	// Size the textinput to the available row width so it doesn't
 	// overflow the container.
 	inner := m.InnerWidth()
 	if inner > 0 {
-		w := inner - lipgloss.Width(indent)
+		w := inner - lipgloss.Width(indent) - lipgloss.Width(glyph)
 		if w < 1 {
 			w = 1
 		}
 		m.input.SetWidth(w)
 	}
-	sections = append(sections, indent+m.input.View())
+	sections = append(sections, indent+glyph+m.input.View())
 
 	items := m.Items()
 	desiredRows := 0

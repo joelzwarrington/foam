@@ -69,7 +69,7 @@ func NewDefaultDelegate() DefaultDelegate {
 			Description:      lipgloss.NewStyle().Faint(true),
 			SelectedTitle:    lipgloss.NewStyle().Reverse(true),
 			SelectedDesc:     lipgloss.NewStyle().Reverse(true).Faint(true),
-			SelectionMarker:  "▸ ",
+			SelectionMarker:  "  ",
 			UnselectedMarker: "  ",
 		},
 	}
