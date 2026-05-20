@@ -14,9 +14,9 @@ Higher-order TUI components for [Bubble Tea][bubbletea], composed from
 A command palette with pluggable modes — fuzzy-filter a static list,
 dispatch an async search, or mix both behind different prefixes.
 
-[Advanced](./examples/palette/advanced) (↑ demo)
-[Simple](./examples/palette/simple)
-[Overlay](./examples/palette/overlay)
+- [Advanced](./examples/palette/advanced) (↑ demo)
+- [Simple](./examples/palette/simple)
+- [Overlay](./examples/palette/overlay)
 
 ## Built with
 
