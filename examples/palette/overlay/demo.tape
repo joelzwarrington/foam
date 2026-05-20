@@ -13,7 +13,7 @@ Set Theme "Catppuccin Mocha"
 Hide
 Type "go run ."
 Enter
-Wait+Screen /package palette/
+Wait+Screen /Lorem ipsum/
 Show
 
 # Background is visible. Open the palette.
@@ -25,12 +25,4 @@ Sleep 800ms
 Type "format"
 Sleep 600ms
 Enter
-Sleep 1000ms
-
-# Reopen, this time pick Quit.
-Ctrl+K
-Sleep 600ms
-Type "quit"
-Sleep 400ms
-Enter
-Sleep 600ms
+Sleep 2000ms

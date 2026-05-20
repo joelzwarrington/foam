@@ -4,15 +4,18 @@
 // land on the background; while visible, they go to the palette
 // only.
 //
-// The background is a fake "editor" buffer drawn behind the palette
-// using lipgloss.Canvas to composite the two layers.
+// The background is a Markdown document rendered with Glamour and
+// composited under the palette via lipgloss.Canvas.
 package main
 
 import (
 	"fmt"
 	"os"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/joelzwarrington/foam/palette"
@@ -22,34 +25,47 @@ import (
 // regardless of terminal size. The palette is centered horizontally.
 const paletteWidth = 60
 
-// fakeEditorBuffer is the static "background" content drawn behind
-// the palette so the overlay has something to overlay on top of.
-const fakeEditorBuffer = `package palette
+// backgroundMarkdown is the static document Glamour renders behind
+// the palette. Picked to exercise headings, lists, blockquotes, code
+// fences, and links — the things Glamour shows off.
+const backgroundMarkdown = `# Lorem ipsum dolor sit amet
 
-// Mode describes how the palette interprets the current input. The
-// active mode is the first one in the configured list whose Match
-// returns true; a nil Match matches anything.
-type Mode struct {
-    Name     string
-    Prompt   string
-    Debounce time.Duration
-    Match    func(input string) bool
-    Query    func(input string) string
-    Items    func(m Model, query string) []Item
-    Search   func(ctx context.Context, query string) tea.Cmd
+Consectetur **adipiscing elit**, sed do _eiusmod tempor_ incididunt ut
+labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
+exercitation [ullamco laboris](https://example.com) nisi ut aliquip ex
+ea commodo consequat.
+
+## Duis aute irure dolor
+
+- in reprehenderit in voluptate
+- velit esse cillum dolore eu fugiat
+- nulla pariatur excepteur sint occaecat
+
+> Sed ut perspiciatis unde omnis iste natus error sit voluptatem
+> accusantium doloremque laudantium, totam rem aperiam.
+
+` + "```go\nfunc main() {\n    fmt.Println(\"hello, foam\")\n}\n```" + `
+`
+
+// hostKeys are the background-level bindings shown by the help bubble
+// at the bottom of the screen when the palette is dismissed.
+type hostKeys struct {
+	OpenPalette key.Binding
+	Quit        key.Binding
 }
 
-func (m Model) Mode() Mode {
-    input := m.input.Value()
-    for _, mode := range m.modes {
-        if mode.Match == nil || mode.Match(input) {
-            return mode
-        }
-    }
-    return Mode{}
+func (k hostKeys) ShortHelp() []key.Binding {
+	return []key.Binding{k.OpenPalette, k.Quit}
 }
 
-// — press ctrl+k to open the command palette —`
+func (k hostKeys) FullHelp() [][]key.Binding {
+	return [][]key.Binding{{k.OpenPalette, k.Quit}}
+}
+
+var defaultHostKeys = hostKeys{
+	OpenPalette: key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "palette")),
+	Quit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+}
 
 // commandsMode is the same single-mode setup as examples/palette/simple.
 var commandsMode = palette.Mode{
@@ -61,6 +77,8 @@ var commandsMode = palette.Mode{
 
 type model struct {
 	palette       palette.Model
+	help          help.Model
+	background    string // Glamour-rendered markdown, computed once at startup
 	visible       bool
 	width, height int
 	status        string
@@ -84,7 +102,13 @@ func initialModel() model {
 		palette.WithPageSize(5),
 	)
 	p.SetWidth(paletteWidth)
-	return model{palette: p}
+
+	rendered, err := glamour.Render(backgroundMarkdown, "dark")
+	if err != nil {
+		// Fall back to raw markdown so the demo still launches.
+		rendered = backgroundMarkdown
+	}
+	return model{palette: p, help: help.New(), background: rendered}
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -107,6 +131,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.palette.Blur()
 			m.palette.Reset()
 			return m, nil
+		case "esc":
+			// Esc dismisses the palette overlay. The palette's own help
+			// row advertises "esc cancel"; the host wires the actual
+			// close.
+			if m.visible {
+				m.visible = false
+				m.palette.Blur()
+				m.palette.Reset()
+				return m, nil
+			}
 		}
 
 	case palette.SelectedMsg:
@@ -135,23 +169,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
-		// Pre-WindowSizeMsg: just show the background unframed.
-		v := tea.NewView(fakeEditorBuffer)
+		// Pre-WindowSizeMsg: just show the rendered markdown unframed.
+		v := tea.NewView(m.background)
 		v.AltScreen = true
 		return v
 	}
 
-	bgStyle := lipgloss.NewStyle().
+	m.help.SetWidth(m.width)
+	helpLine := m.help.View(defaultHostKeys)
+	if m.status != "" {
+		helpLine = lipgloss.NewStyle().Faint(true).Render(m.status) + "    " + helpLine
+	}
+
+	background := lipgloss.NewStyle().
 		Width(m.width).
 		Height(m.height).
-		Padding(1, 2)
-
-	hint := lipgloss.NewStyle().Faint(true).
-		Render("ctrl+k: open palette   ctrl+c: quit")
-	if m.status != "" {
-		hint = lipgloss.NewStyle().Faint(true).Render(m.status) + "    " + hint
-	}
-	background := bgStyle.Render(fakeEditorBuffer + "\n\n" + hint)
+		Render(m.background + "\n" + helpLine)
 
 	if !m.visible {
 		v := tea.NewView(background)
@@ -159,13 +192,19 @@ func (m model) View() tea.View {
 		return v
 	}
 
+	// Pin the palette near the top of the screen so the markdown
+	// beneath it stays visible. lipgloss.NewCompositor is required for
+	// layer X/Y positioning — Canvas.Compose(layer) directly would
+	// clear the whole canvas on each call and ignore the layer's
+	// offset.
+	paletteLayer := lipgloss.NewLayer(m.palette.View()).
+		X((m.width - paletteWidth) / 2).
+		Y(1)
 	canvas := lipgloss.NewCanvas(m.width, m.height)
-	canvas.Compose(lipgloss.NewLayer(background))
-	canvas.Compose(
-		lipgloss.NewLayer(m.palette.View()).
-			X((m.width - paletteWidth) / 2).
-			Y(m.height / 6),
-	)
+	canvas.Compose(lipgloss.NewCompositor(
+		lipgloss.NewLayer(background),
+		paletteLayer,
+	))
 	v := tea.NewView(canvas.Render())
 	v.AltScreen = true
 	return v
