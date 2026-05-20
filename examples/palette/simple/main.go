@@ -33,6 +33,7 @@ type model struct {
 func initialModel() model {
 	p := palette.New(
 		palette.WithModes(commandsMode),
+		palette.WithPlaceholder("Search for commands by name..."),
 		palette.WithCommands([]palette.Item{
 			palette.Command{
 				ID:   "quit",

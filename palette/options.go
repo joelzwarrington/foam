@@ -24,6 +24,13 @@ func WithTitle(s string) Option {
 	return func(m *Model) { m.title = s }
 }
 
+// WithPlaceholder sets the default hint text shown in the input while
+// it's empty. Modes can override this for their own context via
+// Mode.Placeholder.
+func WithPlaceholder(s string) Option {
+	return func(m *Model) { m.placeholder = s }
+}
+
 // WithHelp toggles the short-help row at the bottom of the palette.
 // On by default.
 func WithHelp(show bool) Option {

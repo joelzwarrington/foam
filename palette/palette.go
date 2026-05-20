@@ -36,6 +36,11 @@ type Mode struct {
 	// empty Prompt falls back to defaultPrompt ("⣿ ").
 	Prompt string
 
+	// Placeholder is the hint text shown in the input while it's empty
+	// and this mode is active. Empty falls back to the palette-level
+	// placeholder set via WithPlaceholder.
+	Placeholder string
+
 	// Debounce is how long the palette waits after the input stops
 	// changing before invoking Search. Zero means dispatch on the
 	// next tick. Ignored when Search is nil.
@@ -129,13 +134,14 @@ type Model struct {
 	searchGen    int                // increments on each input change for stale-tick rejection
 	searchCancel context.CancelFunc // cancels the in-flight Search context
 
-	title    string
-	cursor   int
-	pageSize int
-	loading  bool
-	width    int
-	height   int
-	showHelp bool
+	title       string
+	placeholder string
+	cursor      int
+	pageSize    int
+	loading     bool
+	width       int
+	height      int
+	showHelp    bool
 
 	KeyMap KeyMap
 	Styles Styles
@@ -146,7 +152,6 @@ type Model struct {
 func New(opts ...Option) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
-	ti.Placeholder = "Type to search, or > for commands"
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -401,6 +406,13 @@ func (m Model) View() string {
 	}
 	if m.loading {
 		glyph = m.spinner.View()
+	}
+
+	// Per-mode placeholder takes precedence over the palette-level one.
+	if ph := m.Mode().Placeholder; ph != "" {
+		m.input.Placeholder = ph
+	} else {
+		m.input.Placeholder = m.placeholder
 	}
 
 	// Size the textinput to the available row width so it doesn't
