@@ -14,6 +14,28 @@ Higher-order TUI components for [Bubble Tea][bubbletea], composed from
 A command palette with pluggable modes — fuzzy-filter a static list,
 dispatch an async search, or mix both behind different prefixes.
 
+```go
+import "github.com/joelzwarrington/foam/palette"
+
+var commands = []palette.Item{
+    palette.Command{Name: "Open file"},
+    palette.Command{Name: "Save"},
+    palette.Command{Name: "Quit"},
+}
+
+mode := palette.Mode{
+    Name: "commands",
+    Items: func(_ palette.Model, q string) []palette.Item {
+        return palette.FilterFuzzy(commands, q)
+    },
+}
+
+p := palette.New(palette.WithModes(mode))
+```
+
+Each `palette.Mode` owns its own `Match`, `Items`, and optional async `Search`
+or typeable `Facets`. The runnable examples below mix several modes:
+
 - [Advanced](./examples/palette/advanced) (↑ demo)
 - [Simple](./examples/palette/simple)
 - [Overlay](./examples/palette/overlay)
