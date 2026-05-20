@@ -486,12 +486,14 @@ func (m Model) View() string {
 
 	body := strings.Join(sections, "\n")
 
-	// Pin the container's content width so lipgloss pads every row to
-	// the same width — otherwise short rows (title, spacers) don't
-	// reach the right border and it appears to be missing.
+	// Pin the container's block width (lipgloss treats Width as the
+	// outer block — border included — not the content width). Pass
+	// m.width so the rendered output is exactly the terminal width
+	// and lipgloss pads short body rows to the inner width without
+	// truncating the delegate's already-styled padding.
 	container := m.Styles.Container
-	if inner > 0 {
-		container = container.Width(inner)
+	if m.width > 0 {
+		container = container.Width(m.width)
 	}
 	return container.Render(body)
 }
