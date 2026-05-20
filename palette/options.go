@@ -5,15 +5,9 @@ import "charm.land/bubbles/v2/paginator"
 // Option configures a palette Model. Apply with New(...Option).
 type Option func(*Model)
 
-// WithCommands seeds the command list shown in CommandMode.
-func WithCommands(cmds []Item) Option {
-	return func(m *Model) { m.commands = cmds }
-}
-
-// WithModes replaces the default mode list (CommandMode, SearchMode)
-// with the supplied modes, in priority order — the first whose Match
-// returns true wins. Make the last entry a fallback (Match: nil) so
-// some mode always applies.
+// WithModes replaces the default empty mode with the supplied modes,
+// in priority order — the first whose Match returns true wins. Make
+// the last entry a fallback (Match: nil) so some mode always applies.
 func WithModes(modes ...Mode) Option {
 	return func(m *Model) { m.modes = modes }
 }

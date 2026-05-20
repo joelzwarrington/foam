@@ -67,11 +67,26 @@ var defaultHostKeys = hostKeys{
 	Quit:        key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
 }
 
-// commandsMode is the same single-mode setup as examples/palette/simple.
+// commands is the list this example fuzzy-filters.
+var commands = []palette.Item{
+	palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
+	palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
+	palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
+	palette.Command{ID: "theme", Name: "Change theme", Desc: "Toggle between light and dark"},
+	palette.Command{
+		ID:   "quit",
+		Name: "Quit",
+		Desc: "Exit the program",
+		Run:  func() tea.Cmd { return tea.Quit },
+	},
+}
+
+// commandsMode is the same single-mode setup as examples/palette/simple —
+// catch-all Match, fuzzy-filter against the package-level commands slice.
 var commandsMode = palette.Mode{
 	Name: "commands",
-	Items: func(m palette.Model, q string) []palette.Item {
-		return palette.FilterFuzzy(m.Commands(), q)
+	Items: func(_ palette.Model, q string) []palette.Item {
+		return palette.FilterFuzzy(commands, q)
 	},
 }
 
@@ -87,18 +102,6 @@ type model struct {
 func initialModel() model {
 	p := palette.New(
 		palette.WithModes(commandsMode),
-		palette.WithCommands([]palette.Item{
-			palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
-			palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
-			palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
-			palette.Command{ID: "theme", Name: "Change theme", Desc: "Toggle between light and dark"},
-			palette.Command{
-				ID:   "quit",
-				Name: "Quit",
-				Desc: "Exit the program",
-				Run:  func() tea.Cmd { return tea.Quit },
-			},
-		}),
 		palette.WithPageSize(5),
 	)
 	p.SetWidth(paletteWidth)

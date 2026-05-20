@@ -14,14 +14,34 @@ import (
 	"github.com/joelzwarrington/foam/palette"
 )
 
+// commands is the list this example fuzzy-filters. It lives at
+// package scope so commandsMode's Items closure can close over it —
+// the new style of seeding items directly via a Mode.
+var commands = []palette.Item{
+	palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
+	palette.Command{ID: "new", Name: "New file", Desc: "Create an empty buffer"},
+	palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
+	palette.Command{ID: "save-as", Name: "Save As…", Desc: "Save the buffer to a new path"},
+	palette.Command{ID: "close", Name: "Close file", Desc: "Close the current buffer"},
+	palette.Command{ID: "find", Name: "Find in files", Desc: "Search across the project"},
+	palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
+	palette.Command{ID: "terminal", Name: "Toggle terminal", Desc: "Show or hide the integrated terminal"},
+	palette.Command{ID: "sidebar", Name: "Toggle sidebar", Desc: "Show or hide the file tree"},
+	palette.Command{ID: "reload", Name: "Reload window", Desc: "Restart the editor window"},
+	palette.Command{
+		ID:   "quit",
+		Name: "Quit",
+		Desc: "Exit the program",
+		Run:  func() tea.Cmd { return tea.Quit },
+	},
+}
+
 // commandsMode is the only mode in this example. Match is nil so it
-// catches every input; the Items closure runs the same fuzzy filter
-// the built-in CommandMode would, but over the host-configured
-// command list (m.Commands()).
+// catches every input; the Items closure fuzzy-filters its own slice.
 var commandsMode = palette.Mode{
 	Name: "commands",
-	Items: func(m palette.Model, q string) []palette.Item {
-		return palette.FilterFuzzy(m.Commands(), q)
+	Items: func(_ palette.Model, q string) []palette.Item {
+		return palette.FilterFuzzy(commands, q)
 	},
 }
 
@@ -34,24 +54,6 @@ func initialModel() model {
 	p := palette.New(
 		palette.WithModes(commandsMode),
 		palette.WithPlaceholder("Search for commands by name..."),
-		palette.WithCommands([]palette.Item{
-			palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
-			palette.Command{ID: "new", Name: "New file", Desc: "Create an empty buffer"},
-			palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
-			palette.Command{ID: "save-as", Name: "Save As…", Desc: "Save the buffer to a new path"},
-			palette.Command{ID: "close", Name: "Close file", Desc: "Close the current buffer"},
-			palette.Command{ID: "find", Name: "Find in files", Desc: "Search across the project"},
-			palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
-			palette.Command{ID: "terminal", Name: "Toggle terminal", Desc: "Show or hide the integrated terminal"},
-			palette.Command{ID: "sidebar", Name: "Toggle sidebar", Desc: "Show or hide the file tree"},
-			palette.Command{ID: "reload", Name: "Reload window", Desc: "Restart the editor window"},
-			palette.Command{
-				ID:   "quit",
-				Name: "Quit",
-				Desc: "Exit the program",
-				Run:  func() tea.Cmd { return tea.Quit },
-			},
-		}),
 		palette.WithPageSize(4),
 	)
 	p.Focus()

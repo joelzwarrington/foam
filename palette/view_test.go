@@ -51,7 +51,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "command_all",
 			setup: func() Model {
-				m := New(WithCommands(demoCommands), WithPageSize(4))
+				m := New(withSeeded(demoCommands), WithPageSize(4))
 				m.input.SetValue(">")
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				return m
@@ -60,7 +60,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "command_filtered",
 			setup: func() Model {
-				m := New(WithCommands(demoCommands), WithPageSize(4))
+				m := New(withSeeded(demoCommands), WithPageSize(4))
 				m.input.SetValue(">open")
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				return m
@@ -69,7 +69,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "search_loading",
 			setup: func() Model {
-				m := New(WithPageSize(3))
+				m := New(WithModes(searchMode()), WithPageSize(3))
 				m.input.SetValue("foo")
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				m.loading = true
@@ -79,7 +79,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "search_with_results",
 			setup: func() Model {
-				m := New(WithPageSize(3))
+				m := New(WithModes(searchMode()), WithPageSize(3))
 				m.input.SetValue("foo")
 				m.results["search"] = demoResults
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
@@ -89,7 +89,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "search_empty_results",
 			setup: func() Model {
-				m := New(WithPageSize(3))
+				m := New(WithModes(searchMode()), WithPageSize(3))
 				m.input.SetValue("foo")
 				m.results["search"] = []Item{} // explicitly empty
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
@@ -99,7 +99,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "pagination_page_two_of_three",
 			setup: func() Model {
-				m := New(WithCommands(manyItems), WithPageSize(4))
+				m := New(withSeeded(manyItems), WithPageSize(4))
 				m.input.SetValue(">")
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				m.cursor = 4 // first item of page 2 (pages: [0-3],[4-7],[8-9])
@@ -109,7 +109,7 @@ func TestViewGoldens(t *testing.T) {
 		{
 			name: "help_disabled",
 			setup: func() Model {
-				m := New(WithCommands(demoCommands), WithPageSize(4), WithHelp(false))
+				m := New(withSeeded(demoCommands), WithPageSize(4), WithHelp(false))
 				m.input.SetValue(">")
 				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
 				return m

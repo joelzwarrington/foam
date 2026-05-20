@@ -123,9 +123,38 @@ var filesMode = palette.Mode{
 	},
 }
 
-// searchMode replaces the built-in palette.SearchMode for this demo.
-// It's the catch-all (no prefix) and does a debounced async web
-// search with a 400 ms simulated round-trip, demonstrating the
+// commands is the list the ">"-prefixed commandsMode fuzzy-filters.
+var commands = []palette.Item{
+	palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
+	palette.Command{ID: "new", Name: "New file", Desc: "Create an empty buffer"},
+	palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
+	palette.Command{ID: "save-as", Name: "Save As…", Desc: "Save the buffer to a new path"},
+	palette.Command{ID: "close", Name: "Close file", Desc: "Close the current buffer"},
+	palette.Command{ID: "find", Name: "Find in files", Desc: "Search across the project"},
+	palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
+	palette.Command{ID: "terminal", Name: "Toggle terminal", Desc: "Show or hide the integrated terminal"},
+	palette.Command{ID: "sidebar", Name: "Toggle sidebar", Desc: "Show or hide the file tree"},
+	palette.Command{ID: "reload", Name: "Reload window", Desc: "Restart the editor window"},
+	palette.Command{
+		ID:   "quit",
+		Name: "Quit",
+		Desc: "Exit the program",
+		Run:  func() tea.Cmd { return tea.Quit },
+	},
+}
+
+// commandsMode is the ">"-prefixed sync command picker.
+var commandsMode = palette.Mode{
+	Name:   "command",
+	Match:  func(s string) bool { return strings.HasPrefix(s, ">") },
+	Query:  func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, ">")) },
+	Items: func(_ palette.Model, q string) []palette.Item {
+		return palette.FilterFuzzy(commands, q)
+	},
+}
+
+// searchMode is the catch-all (no prefix) and does a debounced async
+// web search with a 400 ms simulated round-trip, demonstrating the
 // spinner and the kind: facet.
 var searchMode = palette.Mode{
 	Name:     "search",
@@ -167,25 +196,7 @@ type model struct {
 
 func initialModel() model {
 	p := palette.New(
-		palette.WithModes(palette.CommandMode, filesMode, searchMode),
-		palette.WithCommands([]palette.Item{
-			palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
-			palette.Command{ID: "new", Name: "New file", Desc: "Create an empty buffer"},
-			palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
-			palette.Command{ID: "save-as", Name: "Save As…", Desc: "Save the buffer to a new path"},
-			palette.Command{ID: "close", Name: "Close file", Desc: "Close the current buffer"},
-			palette.Command{ID: "find", Name: "Find in files", Desc: "Search across the project"},
-			palette.Command{ID: "format", Name: "Format document", Desc: "Run the configured formatter"},
-			palette.Command{ID: "terminal", Name: "Toggle terminal", Desc: "Show or hide the integrated terminal"},
-			palette.Command{ID: "sidebar", Name: "Toggle sidebar", Desc: "Show or hide the file tree"},
-			palette.Command{ID: "reload", Name: "Reload window", Desc: "Restart the editor window"},
-			palette.Command{
-				ID:   "quit",
-				Name: "Quit",
-				Desc: "Exit the program",
-				Run:  func() tea.Cmd { return tea.Quit },
-			},
-		}),
+		palette.WithModes(commandsMode, filesMode, searchMode),
 		palette.WithPageSize(4),
 	)
 	p.Focus()

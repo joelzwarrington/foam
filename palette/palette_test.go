@@ -14,6 +14,35 @@ type testItem struct{ name string }
 
 func (t testItem) FilterValue() string { return t.name }
 
+// commandMode returns a ">"-prefix sync mode that fuzzy-filters cmds.
+// Mirrors the behaviour the deleted built-in CommandMode provided —
+// most tests rely on the ">"-prefix mode existing alongside a
+// catch-all results bucket.
+func commandMode(cmds []Item) Mode {
+	return Mode{
+		Name:  "command",
+		Match: func(s string) bool { return strings.HasPrefix(s, ">") },
+		Query: func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, ">")) },
+		Items: func(_ Model, q string) []Item { return FilterFuzzy(cmds, q) },
+	}
+}
+
+// searchMode returns a catch-all sync mode that reads from
+// m.results["search"]. Pair with commandMode to recreate the old
+// default-mode setup for tests that depend on it.
+func searchMode() Mode {
+	return Mode{
+		Name:  "search",
+		Items: func(m Model, _ string) []Item { return m.results["search"] },
+	}
+}
+
+// withSeeded wires commandMode + searchMode in the palette so tests
+// that used to call withSeeded(cmds) keep working as a drop-in.
+func withSeeded(cmds []Item) Option {
+	return WithModes(commandMode(cmds), searchMode())
+}
+
 func TestModeAndQuery(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -32,7 +61,7 @@ func TestModeAndQuery(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := New()
+			m := New(WithModes(commandMode(nil), searchMode()))
 			m.input.SetValue(tc.input)
 
 			if got := m.Mode().Name; got != tc.wantMode {
@@ -66,7 +95,7 @@ func TestCustomMode(t *testing.T) {
 		},
 	}
 
-	m := New(WithModes(CommandMode, filesMode, SearchMode))
+	m := New(WithModes(commandMode(nil), filesMode, searchMode()))
 
 	cases := []struct {
 		input        string
@@ -111,7 +140,7 @@ func TestItemsReflectsMode(t *testing.T) {
 	cmds := []Item{Command{Name: "open"}, Command{Name: "close"}}
 	results := []Item{testItem{name: "hit"}}
 
-	m := New(WithCommands(cmds))
+	m := New(withSeeded(cmds))
 	m.results["search"] = results
 
 	m.input.SetValue("foo")
@@ -169,7 +198,7 @@ func TestCommandModeFuzzyFilter(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := New(WithCommands(cmds))
+			m := New(withSeeded(cmds))
 			m.input.SetValue(">" + tc.query)
 
 			got := m.Items()
@@ -186,7 +215,7 @@ func TestCommandModeFuzzyFilter(t *testing.T) {
 }
 
 func TestCursorResetsOnInputChange(t *testing.T) {
-	m := New(WithCommands([]Item{
+	m := New(withSeeded([]Item{
 		Command{Name: "Open file"},
 		Command{Name: "Save"},
 		Command{Name: "Quit"},
@@ -204,7 +233,7 @@ func TestCursorResetsOnInputChange(t *testing.T) {
 }
 
 func TestCursorUnchangedWhenInputUnchanged(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "a"}, Command{Name: "b"}, Command{Name: "c"}}))
+	m := New(withSeeded([]Item{Command{Name: "a"}, Command{Name: "b"}, Command{Name: "c"}}))
 	m.Focus()
 	m.input.SetValue(">")
 	m.cursor = 1
@@ -221,7 +250,7 @@ func TestCursorUnchangedWhenInputUnchanged(t *testing.T) {
 func TestCursorNavigation(t *testing.T) {
 	newPaletteIn := func(t *testing.T) Model {
 		t.Helper()
-		m := New(WithCommands([]Item{
+		m := New(withSeeded([]Item{
 			Command{Name: "Open file"},
 			Command{Name: "Save"},
 			Command{Name: "Quit"},
@@ -259,7 +288,7 @@ func TestCursorNavigation(t *testing.T) {
 }
 
 func TestNavigationDoesNotAlterInput(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "a"}, Command{Name: "b"}}))
+	m := New(withSeeded([]Item{Command{Name: "a"}, Command{Name: "b"}}))
 	m.Focus()
 	m.input.SetValue(">")
 
@@ -279,7 +308,7 @@ func TestPaginationCursorJumpsByPage(t *testing.T) {
 	for i := range cmds {
 		cmds[i] = Command{Name: string(rune('a' + i))}
 	}
-	m := New(WithCommands(cmds), WithPageSize(4))
+	m := New(withSeeded(cmds), WithPageSize(4))
 	m.Focus()
 	m.input.SetValue(">")
 
@@ -321,7 +350,7 @@ func TestPaginationDisabledWhenPageSizeZero(t *testing.T) {
 	for i := range cmds {
 		cmds[i] = Command{Name: string(rune('a' + i))}
 	}
-	m := New(WithCommands(cmds))
+	m := New(withSeeded(cmds))
 	m.Focus()
 	m.input.SetValue(">")
 	m.cursor = 3
@@ -339,7 +368,7 @@ func TestPaginationSelectedHonoursAbsoluteCursor(t *testing.T) {
 	for i := range cmds {
 		cmds[i] = Command{Name: string(rune('a' + i))}
 	}
-	m := New(WithCommands(cmds), WithPageSize(3))
+	m := New(withSeeded(cmds), WithPageSize(3))
 	m.Focus()
 	m.input.SetValue(">")
 
@@ -354,7 +383,7 @@ func TestPaginationFooterRendersWhenMultiplePages(t *testing.T) {
 		Command{Name: "one"}, Command{Name: "two"},
 		Command{Name: "three"}, Command{Name: "four"},
 	}
-	m := New(WithCommands(cmds), WithPageSize(2), WithHelp(false))
+	m := New(withSeeded(cmds), WithPageSize(2), WithHelp(false))
 	m.input.SetValue(">")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 
@@ -369,7 +398,7 @@ func TestPaginationFooterRendersWhenMultiplePages(t *testing.T) {
 
 func TestPaginationNoFooterForSinglePage(t *testing.T) {
 	cmds := []Item{Command{Name: "only"}}
-	m := New(WithCommands(cmds), WithPageSize(5), WithHelp(false))
+	m := New(withSeeded(cmds), WithPageSize(5), WithHelp(false))
 	m.input.SetValue(">")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 
@@ -406,7 +435,7 @@ func asyncMode(name string, results []Item) Mode {
 
 func TestSearchDebounceDispatchesAfterTick(t *testing.T) {
 	mode := asyncMode("files", []Item{testItem{name: "hit"}})
-	m := New(WithModes(mode, SearchMode))
+	m := New(WithModes(mode, searchMode()))
 	m.Focus()
 
 	// Simulate a keystroke that lands "@files foo" in the input.
@@ -479,7 +508,7 @@ func findDebounceMsg(t *testing.T, cmd tea.Cmd) debounceMsg {
 
 func TestSearchStaleDebounceIgnored(t *testing.T) {
 	mode := asyncMode("files", []Item{testItem{name: "hit"}})
-	m := New(WithModes(mode, SearchMode))
+	m := New(WithModes(mode, searchMode()))
 
 	m.input.SetValue("@filesa")
 	_ = m.scheduleSearch() // gen=1
@@ -504,7 +533,7 @@ func TestSearchStaleDebounceIgnored(t *testing.T) {
 
 func TestSearchStaleResultIgnored(t *testing.T) {
 	mode := asyncMode("files", []Item{testItem{name: "hit"}})
-	m := New(WithModes(mode, SearchMode))
+	m := New(WithModes(mode, searchMode()))
 
 	m.input.SetValue("@filesfoo")
 	// Stale result targeting a different query.
@@ -533,7 +562,7 @@ func TestSearchModeSwitchCancelsInFlight(t *testing.T) {
 			return func() tea.Msg { return nil }
 		},
 	}
-	m := New(WithModes(mode, SearchMode))
+	m := New(WithModes(mode, searchMode()))
 	m.input.SetValue("@foo")
 	cmd := m.scheduleSearch()
 	dbMsg := findDebounceMsg(t, cmd)
@@ -565,7 +594,7 @@ func TestEnterDispatchesCommandRun(t *testing.T) {
 		Run:  func() tea.Cmd { return func() tea.Msg { return runMarker{id: "open"} } },
 	}
 
-	m := New(WithCommands([]Item{cmd}))
+	m := New(withSeeded([]Item{cmd}))
 	m.Focus()
 	m.input.SetValue(">")
 
@@ -608,7 +637,7 @@ func TestEnterDispatchesCommandRun(t *testing.T) {
 }
 
 func TestEnterEmitsSelectedMsgWhenRunNil(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "Save", Run: nil}}))
+	m := New(withSeeded([]Item{Command{Name: "Save", Run: nil}}))
 	m.Focus()
 	m.input.SetValue(">")
 
@@ -627,9 +656,9 @@ func TestEnterEmitsSelectedMsgWhenRunNil(t *testing.T) {
 }
 
 func TestEnterOnNonCommandItem(t *testing.T) {
-	// SearchMode result that isn't a Command: Enter should still
-	// emit SelectedMsg so the host knows what was picked.
-	m := New()
+	// A non-Command result item: Enter should still emit SelectedMsg
+	// so the host knows what was picked.
+	m := New(WithModes(searchMode()))
 	m.Focus()
 	m.input.SetValue("query")
 	m.results["search"] = []Item{testItem{name: "hit"}}
@@ -662,7 +691,7 @@ func TestEnterWithNoSelection(t *testing.T) {
 func TestEnterNotForwardedToInput(t *testing.T) {
 	// Enter must be consumed; the textinput must not see it (which
 	// in some configurations would otherwise submit/blur the input).
-	m := New(WithCommands([]Item{Command{Name: "a"}}))
+	m := New(withSeeded([]Item{Command{Name: "a"}}))
 	m.Focus()
 	m.input.SetValue(">a")
 
@@ -717,7 +746,7 @@ func typeKey(t *testing.T, ch string) tea.KeyPressMsg {
 }
 
 func TestSelectedBounds(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "a"}, Command{Name: "b"}}))
+	m := New(withSeeded([]Item{Command{Name: "a"}, Command{Name: "b"}}))
 	m.input.SetValue(">")
 
 	m.cursor = 0
@@ -737,7 +766,7 @@ func TestSelectedBounds(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "a"}}))
+	m := New(withSeeded([]Item{Command{Name: "a"}}))
 	m.input.SetValue("hello")
 	m.results["search"] = []Item{testItem{name: "x"}}
 	m.cursor = 3
@@ -773,15 +802,15 @@ func TestOptionsApply(t *testing.T) {
 	styles := Styles{}
 
 	m := New(
-		WithCommands(cmds),
+		withSeeded(cmds),
 		WithKeyMap(custom),
 		WithStyles(styles),
 		WithPageSize(7),
 		WithPaginatorType(paginator.Arabic),
 	)
 
-	if len(m.commands) != 1 {
-		t.Errorf("commands not applied: %v", m.commands)
+	if len(m.modes) != 2 {
+		t.Errorf("modes not applied: got %d, want 2 (commandMode + searchMode)", len(m.modes))
 	}
 	if m.paginator.PerPage != 7 {
 		t.Errorf("paginator.PerPage = %d, want 7", m.paginator.PerPage)
@@ -895,7 +924,7 @@ func TestCustomModePrompt(t *testing.T) {
 		Query:  func(s string) string { return strings.TrimPrefix(s, "@") },
 		Items:  func(_ Model, _ string) []Item { return nil },
 	}
-	m := New(WithModes(custom, SearchMode))
+	m := New(WithModes(custom, searchMode()))
 	m.input.SetValue("@foo")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 
@@ -906,7 +935,7 @@ func TestCustomModePrompt(t *testing.T) {
 }
 
 func TestViewIncludesHelp(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "open"}}))
+	m := New(withSeeded([]Item{Command{Name: "open"}}))
 	m.input.SetValue(">")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
 
@@ -920,7 +949,7 @@ func TestViewIncludesHelp(t *testing.T) {
 }
 
 func TestWithHelpFalseHidesHelp(t *testing.T) {
-	m := New(WithCommands([]Item{Command{Name: "open"}}), WithHelp(false))
+	m := New(withSeeded([]Item{Command{Name: "open"}}), WithHelp(false))
 	m.input.SetValue(">")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
 
@@ -931,7 +960,7 @@ func TestWithHelpFalseHidesHelp(t *testing.T) {
 }
 
 func TestViewRendersInputAndItems(t *testing.T) {
-	m := New(WithCommands([]Item{
+	m := New(withSeeded([]Item{
 		Command{Name: "open", Desc: "open it"},
 		Command{Name: "save"},
 	}))
@@ -951,7 +980,7 @@ func TestViewRendersInputAndItems(t *testing.T) {
 func TestViewWithNoItems(t *testing.T) {
 	// SearchMode + empty results should render the input inside the
 	// container but no items list under it.
-	m := New(WithCommands([]Item{Command{Name: "open"}, Command{Name: "save"}}))
+	m := New(withSeeded([]Item{Command{Name: "open"}, Command{Name: "save"}}))
 	m.input.SetValue("hello")
 
 	out := m.View()

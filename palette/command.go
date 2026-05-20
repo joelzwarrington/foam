@@ -2,8 +2,9 @@ package palette
 
 import tea "charm.land/bubbletea/v2"
 
-// Command is a built-in Item for use in CommandMode. Implements
-// DefaultItem so the DefaultDelegate renders it without extra work.
+// Command is a built-in Item for command-style palettes. Implements
+// DefaultItem so the DefaultDelegate renders it without extra work,
+// and carries an optional Run hook the host can fire on Enter.
 type Command struct {
 	ID   string
 	Name string

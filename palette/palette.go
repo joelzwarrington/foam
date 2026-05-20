@@ -1,8 +1,9 @@
 // Package palette provides a command-palette bubble for Bubble Tea
-// programs. It has two modes derived from the input itself: input
-// starting with ">" filters a predefined command list (CommandMode);
-// anything else dispatches to a caller-provided async search
-// (SearchMode).
+// programs. Hosts compose one or more Modes: each Mode owns its own
+// Match (which inputs it claims), Items (the candidate list), and
+// optionally an async Search dispatcher and typeable Facets. With no
+// WithModes, the palette uses a single empty catch-all mode; the
+// palette renders cleanly but shows no items until hosts wire one up.
 package palette
 
 import (
@@ -86,35 +87,13 @@ type Mode struct {
 // spinner.
 const defaultPrompt = "⣿ "
 
-// CommandMode is the default ">"-prefixed mode. Items are the
-// configured commands, fuzzy-filtered by the query.
-var CommandMode = Mode{
-	Name:   "command",
+// emptyMode is the implicit default when no Modes are configured. It
+// claims any input but produces no items — the palette renders, but
+// is otherwise inert until hosts pass their own Mode list via
+// WithModes.
+var emptyMode = Mode{
+	Name:   "default",
 	Prompt: defaultPrompt,
-	Match: func(input string) bool {
-		return strings.HasPrefix(input, ">")
-	},
-	Query: func(input string) string {
-		return strings.TrimSpace(strings.TrimPrefix(input, ">"))
-	},
-	Items: func(m Model, q string) []Item {
-		return FilterFuzzy(m.commands, q)
-	},
-}
-
-// SearchMode is the default fallback. It matches any input not
-// claimed by an earlier mode and reads from the palette's cached
-// results bucket for its Name. Hosts override Search via WithModes
-// to actually populate results.
-var SearchMode = Mode{
-	Name:     "search",
-	Prompt:   defaultPrompt,
-	Debounce: 150 * time.Millisecond,
-	Match:    nil, // nil = catch-all
-	Query:    nil, // nil = identity
-	Items: func(m Model, _ string) []Item {
-		return m.results["search"]
-	},
 }
 
 // debounceMsg is an internal tick that fires after a mode's Debounce
@@ -133,7 +112,6 @@ type Model struct {
 	help      help.Model
 
 	modes    []Mode
-	commands []Item
 	results  map[string][]Item // per-mode cache: keyed by Mode.Name
 	delegate ItemDelegate
 
@@ -184,7 +162,7 @@ func New(opts ...Option) Model {
 		spinner:      sp,
 		paginator:    pg,
 		help:         help.New(),
-		modes:        []Mode{CommandMode, SearchMode},
+		modes:        []Mode{emptyMode},
 		delegate:     NewDefaultDelegate(),
 		results:      map[string][]Item{},
 		facetResults: map[string][]Item{},
@@ -667,11 +645,6 @@ func (m Model) Results(modeName string) []Item {
 	return m.results[modeName]
 }
 
-// Commands returns the command list configured via WithCommands.
-// Useful when a custom Mode wants to filter the same list using
-// different prefix or matching semantics.
-func (m Model) Commands() []Item { return m.commands }
-
 // Loading reports whether a Search is currently in flight.
 func (m Model) Loading() bool { return m.loading }
 
@@ -704,8 +677,8 @@ func (m Model) Items() []Item {
 
 // FilterFuzzy returns items whose FilterValue is a fuzzy-subsequence
 // match for query, ordered by relevance (best first). An empty query
-// returns the input unchanged. Exported so custom Mode.Items closures
-// can reuse the same filter logic as the built-in CommandMode.
+// returns the input unchanged. Exported so a Mode's Items closure can
+// fuzzy-filter its own item slice without re-implementing the matcher.
 func FilterFuzzy(items []Item, query string) []Item {
 	if query == "" {
 		return items
