@@ -5,30 +5,26 @@ Output demo.gif
 
 Set FontSize 14
 Set Width 720
-Set Height 360
-Set TypingSpeed 80ms
+Set Height 480
+Set TypingSpeed 90ms
 Set PlaybackSpeed 1.0
 Set Theme "Catppuccin Mocha"
 
 Hide
 Type "go run ."
 Enter
-Wait+Screen /quit/
+Wait+Screen /Open file/
 Show
 
-# Land on default selection (Quit). Fuzzy-filter without any prefix.
+# Page through the commands with the arrow keys.
 Sleep 800ms
-Type "open"
-Sleep 600ms
-Backspace 4
-Sleep 400ms
-Type "format"
-Sleep 600ms
-Enter
+Down@300ms 5
 Sleep 800ms
+Up@300ms 5
+Sleep 600ms
 
-# Now run Quit by name.
+# Filter to Quit and run it.
 Type "quit"
-Sleep 500ms
+Sleep 600ms
 Enter
 Sleep 600ms
