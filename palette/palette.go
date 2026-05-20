@@ -259,7 +259,7 @@ func (m Model) View() string {
 		}
 		helpLine := m.help.View(m)
 		if helpLine != "" {
-			sections = append(sections, "", indent+m.Styles.Footer.Render(helpLine))
+			sections = append(sections, "", indent+helpLine)
 		}
 	}
 
