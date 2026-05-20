@@ -1,0 +1,44 @@
+<type>(<scope>): <description>
+
+# Body is optional — omit it for straightforward changes where the
+# subject line is self-explanatory. Only add a body when the *why*
+# is non-obvious: a constraint, a tradeoff, or context that isn't
+# visible in the diff. Never summarise what the diff already shows.
+# Wrap at 72 characters. ============================================|
+
+[optional body]
+
+[optional footer(s)]
+
+# ── Types ────────────────────────────────────────────────────────────
+# feat      introduce a new feature
+# fix       patch a bug
+# refactor  code change that neither fixes a bug nor adds a feature
+# docs      documentation only
+# test      add or update tests
+# chore     maintenance, deps, tooling
+# build     build system or external dependencies
+# ci        CI configuration files and scripts
+# style     formatting, missing semi colons, whitespace
+# perf      performance improvement
+#
+# ── Rules ────────────────────────────────────────────────────────────
+# 1. Separate subject from body with a blank line
+# 2. Subject line ≤ 50 characters total
+# 3. Description is lowercase — proper nouns excepted
+# 4. Do not end the subject line with a period
+# 5. Use the imperative mood: "add feature" not "added feature"
+# 6. Wrap the body at 72 characters
+# 7. Body explains *why*, never *what* — the diff shows what changed
+#
+# If applied, this commit will: <description>
+#
+# ── Scopes ───────────────────────────────────────────────────────────
+# Scope is the top-level package or directory:
+#   palette
+# Add a sub-scope only when it provides useful context:
+#   palette/delegate
+#
+# ── Breaking changes ─────────────────────────────────────────────────
+# Append ! after type/scope, and/or add a footer:
+# BREAKING CHANGE: <description>

@@ -1,0 +1,21 @@
+version: "3"
+
+tasks:
+  test:
+    desc: Run Go unit tests with race detector and coverage
+    cmd: go test -race -cover ./...
+
+  fmt:
+    desc: Format Go code
+    cmd: go fmt ./...
+
+  lint:
+    desc: Lint and vet Go code
+    cmd: golangci-lint run
+
+  verify:
+    desc: Format, lint, and run all Go tests
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
