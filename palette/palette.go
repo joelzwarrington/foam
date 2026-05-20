@@ -8,6 +8,8 @@ package palette
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/paginator"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -35,6 +37,7 @@ type Model struct {
 	input     textinput.Model
 	spinner   spinner.Model
 	paginator paginator.Model
+	help      help.Model
 
 	commands []Item
 	results  []Item
@@ -47,6 +50,7 @@ type Model struct {
 	loading  bool
 	width    int
 	height   int
+	showHelp bool
 
 	KeyMap KeyMap
 	Styles Styles
@@ -69,7 +73,9 @@ func New(opts ...Option) Model {
 		input:     ti,
 		spinner:   sp,
 		paginator: pg,
+		help:      help.New(),
 		delegate:  NewDefaultDelegate(),
+		showHelp:  true,
 		KeyMap:    DefaultKeyMap(),
 		Styles:    DefaultStyles(),
 	}
@@ -83,15 +89,31 @@ func New(opts ...Option) Model {
 // command — callers compose it into their own program's Init.
 func (m Model) Init() tea.Cmd { return nil }
 
-// Update forwards messages to the textinput, tracks terminal size,
-// and resets the cursor whenever the input value changes (so it can't
-// dangle past the end of a freshly filtered command list). Cursor
-// movement, paging, and Enter dispatch land in later milestones.
+// Update handles cursor navigation, forwards remaining messages to
+// the textinput, tracks terminal size, and resets the cursor whenever
+// the input value changes (so it can't dangle past the end of a
+// freshly filtered command list). Paging and Enter dispatch land in
+// later milestones.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if ws, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = ws.Width
 		m.height = ws.Height
 	}
+
+	// Navigation keys are consumed by the palette and NOT forwarded
+	// to the textinput, which would otherwise treat them as
+	// suggestion navigation.
+	if kp, ok := msg.(tea.KeyPressMsg); ok {
+		switch {
+		case key.Matches(kp, m.KeyMap.Down):
+			m.moveCursor(1)
+			return m, nil
+		case key.Matches(kp, m.KeyMap.Up):
+			m.moveCursor(-1)
+			return m, nil
+		}
+	}
+
 	prev := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -99,6 +121,41 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.cursor = 0
 	}
 	return m, cmd
+}
+
+// ShortHelp returns the compact key list rendered by the help bubble
+// at the bottom of the palette. Combines Up/Down into a single
+// synthetic "↑↓ navigate" entry for legibility; the actual KeyMap
+// bindings remain split since they're separate actions.
+func (m Model) ShortHelp() []key.Binding {
+	// WithKeys is required even for display-only bindings — help
+	// treats keyless bindings as disabled and skips them.
+	nav := key.NewBinding(
+		key.WithKeys("up", "down"),
+		key.WithHelp("↑↓", "navigate"),
+	)
+	return []key.Binding{nav, m.KeyMap.Execute, m.KeyMap.Cancel}
+}
+
+// FullHelp returns the expanded key groups for help bubbles displaying
+// the full layout (not used by the palette itself by default, but
+// available for hosts that wire up "?"-toggled help).
+func (m Model) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{m.KeyMap.Up, m.KeyMap.Down},
+		{m.KeyMap.PrevPage, m.KeyMap.NextPage},
+		{m.KeyMap.Execute, m.KeyMap.Cancel},
+	}
+}
+
+// moveCursor shifts the selection by delta, wrapping at both ends. A
+// no-op when there are no items.
+func (m *Model) moveCursor(delta int) {
+	n := len(m.Items())
+	if n == 0 {
+		return
+	}
+	m.cursor = ((m.cursor+delta)%n + n) % n
 }
 
 // InnerWidth is the usable width inside the Container border/padding.
@@ -172,6 +229,17 @@ func (m Model) View() string {
 		}
 
 		sections = append(sections, "", strings.Join(lines, "\n"))
+	}
+
+	if m.showHelp {
+		helpWidth := inner - lipgloss.Width(indent)
+		if helpWidth > 0 {
+			m.help.SetWidth(helpWidth)
+		}
+		helpLine := m.help.View(m)
+		if helpLine != "" {
+			sections = append(sections, "", indent+m.Styles.Footer.Render(helpLine))
+		}
 	}
 
 	body := strings.Join(sections, "\n")

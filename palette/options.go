@@ -16,6 +16,12 @@ func WithTitle(s string) Option {
 	return func(m *Model) { m.title = s }
 }
 
+// WithHelp toggles the short-help row at the bottom of the palette.
+// On by default.
+func WithHelp(show bool) Option {
+	return func(m *Model) { m.showHelp = show }
+}
+
 // WithSearch wires up the async search function used in SearchMode.
 func WithSearch(fn SearchFunc) Option {
 	return func(m *Model) { m.search = fn }

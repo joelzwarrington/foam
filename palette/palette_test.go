@@ -158,6 +158,85 @@ func TestCursorUnchangedWhenInputUnchanged(t *testing.T) {
 	}
 }
 
+func TestCursorNavigation(t *testing.T) {
+	newPaletteIn := func(t *testing.T) Model {
+		t.Helper()
+		m := New(WithCommands([]Item{
+			Command{Name: "Open file"},
+			Command{Name: "Save"},
+			Command{Name: "Quit"},
+		}))
+		m.Focus()
+		m.input.SetValue(">")
+		return m
+	}
+
+	tests := []struct {
+		name string
+		seed int
+		key  tea.KeyPressMsg
+		want int
+	}{
+		{"down from top", 0, arrowKey(tea.KeyDown), 1},
+		{"down again", 1, arrowKey(tea.KeyDown), 2},
+		{"down wraps from last", 2, arrowKey(tea.KeyDown), 0},
+		{"up from middle", 1, arrowKey(tea.KeyUp), 0},
+		{"up wraps from first", 0, arrowKey(tea.KeyUp), 2},
+		{"ctrl+n is down", 0, ctrlKey('n'), 1},
+		{"ctrl+p is up", 1, ctrlKey('p'), 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newPaletteIn(t)
+			m.cursor = tc.seed
+			m, _ = m.Update(tc.key)
+			if m.cursor != tc.want {
+				t.Errorf("cursor = %d, want %d", m.cursor, tc.want)
+			}
+		})
+	}
+}
+
+func TestNavigationDoesNotAlterInput(t *testing.T) {
+	m := New(WithCommands([]Item{Command{Name: "a"}, Command{Name: "b"}}))
+	m.Focus()
+	m.input.SetValue(">")
+
+	m, _ = m.Update(arrowKey(tea.KeyDown))
+
+	if v := m.input.Value(); v != ">" {
+		t.Errorf("input mutated by navigation key: got %q, want %q", v, ">")
+	}
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", m.cursor)
+	}
+}
+
+func TestNavigationWithNoItems(t *testing.T) {
+	// SearchMode + no results → no items. Navigation must be a no-op,
+	// not panic or set cursor out of bounds.
+	m := New()
+	m.Focus()
+	m.input.SetValue("query")
+	m.cursor = 0
+
+	m, _ = m.Update(arrowKey(tea.KeyDown))
+	if m.cursor != 0 {
+		t.Errorf("cursor moved with no items: got %d, want 0", m.cursor)
+	}
+}
+
+// arrowKey returns a tea.KeyPressMsg for a special key like tea.KeyDown.
+func arrowKey(code rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: code}
+}
+
+// ctrlKey returns a tea.KeyPressMsg for ctrl+<rune>.
+func ctrlKey(r rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl}
+}
+
 // itemNames extracts FilterValues for readable test failures.
 func itemNames(items []Item) []string {
 	out := make([]string, len(items))
@@ -269,6 +348,69 @@ func TestPageSizeZeroSkipsPaginatorPerPage(t *testing.T) {
 
 func TestCommandImplementsDefaultItem(t *testing.T) {
 	var _ DefaultItem = Command{Name: "x", Desc: "y"}
+}
+
+func TestShortHelpBindings(t *testing.T) {
+	m := New()
+	bindings := m.ShortHelp()
+	if len(bindings) != 3 {
+		t.Fatalf("ShortHelp returned %d bindings, want 3", len(bindings))
+	}
+
+	// First entry is the synthetic "navigate" combo (no matched keys,
+	// just a help label).
+	if got := bindings[0].Help(); got.Key != "↑↓" || got.Desc != "navigate" {
+		t.Errorf("ShortHelp[0] help = %+v, want ↑↓/navigate", got)
+	}
+	if got := bindings[1].Help(); got.Desc != "execute" {
+		t.Errorf("ShortHelp[1] desc = %q, want execute", got.Desc)
+	}
+	if got := bindings[2].Help(); got.Desc != "cancel" {
+		t.Errorf("ShortHelp[2] desc = %q, want cancel", got.Desc)
+	}
+}
+
+func TestFullHelpGroups(t *testing.T) {
+	groups := New().FullHelp()
+	if len(groups) != 3 {
+		t.Fatalf("FullHelp groups = %d, want 3", len(groups))
+	}
+	// Each group should hold ≥1 binding with non-empty help text.
+	for i, g := range groups {
+		if len(g) == 0 {
+			t.Errorf("FullHelp group %d is empty", i)
+		}
+		for j, b := range g {
+			if b.Help().Desc == "" {
+				t.Errorf("FullHelp[%d][%d] missing help desc", i, j)
+			}
+		}
+	}
+}
+
+func TestViewIncludesHelp(t *testing.T) {
+	m := New(WithCommands([]Item{Command{Name: "open"}}))
+	m.input.SetValue(">")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+
+	out := m.View()
+	if !strings.Contains(out, "navigate") {
+		t.Errorf("View() missing help text 'navigate', got:\n%s", out)
+	}
+	if !strings.Contains(out, "execute") {
+		t.Errorf("View() missing help text 'execute', got:\n%s", out)
+	}
+}
+
+func TestWithHelpFalseHidesHelp(t *testing.T) {
+	m := New(WithCommands([]Item{Command{Name: "open"}}), WithHelp(false))
+	m.input.SetValue(">")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+
+	out := m.View()
+	if strings.Contains(out, "navigate") {
+		t.Errorf("View() rendered help despite WithHelp(false), got:\n%s", out)
+	}
 }
 
 func TestViewRendersInputAndItems(t *testing.T) {
