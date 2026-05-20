@@ -209,6 +209,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	case tea.MouseWheelMsg:
+		// Wheel scrolls the item cursor one row at a time. Routes
+		// through moveCursor so facet-completion navigation is handled
+		// the same way as Up/Down. The host has to enable mouse capture
+		// (e.g. tea.View.MouseMode = tea.MouseModeCellMotion) for these
+		// to arrive.
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.moveCursor(-1)
+		case tea.MouseWheelDown:
+			m.moveCursor(1)
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		// Navigation and Execute keys are consumed by the palette and
 		// NOT forwarded to the textinput.

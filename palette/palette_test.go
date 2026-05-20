@@ -875,6 +875,24 @@ func TestFullHelpGroups(t *testing.T) {
 	}
 }
 
+func TestMouseWheelMovesCursor(t *testing.T) {
+	cmds := []Item{Command{Name: "a"}, Command{Name: "b"}, Command{Name: "c"}}
+	m := New(withSeeded(cmds))
+	m.Focus()
+	m.input.SetValue(">")
+	m.cursor = 1
+
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if m.cursor != 2 {
+		t.Errorf("wheel down: cursor = %d, want 2", m.cursor)
+	}
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if m.cursor != 0 {
+		t.Errorf("wheel up x2: cursor = %d, want 0", m.cursor)
+	}
+}
+
 // TestNewNoOptionsRendersSafely guards the empty-default mode: with no
 // WithModes (and no other options), New() must produce a Model whose
 // common methods don't panic. The palette won't be useful — it has no

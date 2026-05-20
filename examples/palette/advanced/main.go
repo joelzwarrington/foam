@@ -236,6 +236,9 @@ func (m model) View() tea.View {
 	status += "   (ctrl+c to quit)"
 	v := tea.NewView(m.palette.View() + status)
 	v.AltScreen = true
+	// Cell-motion mouse capture is enough for the wheel events the
+	// palette listens for.
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
