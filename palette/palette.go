@@ -100,9 +100,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.height = ws.Height
 	}
 
-	// Navigation keys are consumed by the palette and NOT forwarded
-	// to the textinput, which would otherwise treat them as
-	// suggestion navigation.
+	// Navigation and Execute keys are consumed by the palette and NOT
+	// forwarded to the textinput, which would otherwise treat ↑/↓ as
+	// suggestion navigation and Enter as input submission.
 	if kp, ok := msg.(tea.KeyPressMsg); ok {
 		switch {
 		case key.Matches(kp, m.KeyMap.Down):
@@ -111,6 +111,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case key.Matches(kp, m.KeyMap.Up):
 			m.moveCursor(-1)
 			return m, nil
+		case key.Matches(kp, m.KeyMap.Execute):
+			return m, m.execute()
 		}
 	}
 
@@ -146,6 +148,25 @@ func (m Model) FullHelp() [][]key.Binding {
 		{m.KeyMap.PrevPage, m.KeyMap.NextPage},
 		{m.KeyMap.Execute, m.KeyMap.Cancel},
 	}
+}
+
+// execute builds the tea.Cmd dispatched when the user presses Enter
+// on a highlighted item. Always emits a SelectedMsg so the host can
+// react (close the palette, log, etc.); when the item is a Command
+// with a non-nil Run, batches Run()'s cmd alongside. Returns nil when
+// no item is selected.
+func (m Model) execute() tea.Cmd {
+	sel := m.Selected()
+	if sel == nil {
+		return nil
+	}
+	selectMsg := func() tea.Msg { return SelectedMsg{Item: sel} }
+	if c, ok := sel.(Command); ok && c.Run != nil {
+		if runCmd := c.Run(); runCmd != nil {
+			return tea.Batch(selectMsg, runCmd)
+		}
+	}
+	return selectMsg
 }
 
 // moveCursor shifts the selection by delta, wrapping at both ends. A

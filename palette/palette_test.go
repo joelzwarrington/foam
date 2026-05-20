@@ -213,6 +213,123 @@ func TestNavigationDoesNotAlterInput(t *testing.T) {
 	}
 }
 
+// runMarker is what a test Command's Run() emits — lets us assert
+// that Run actually fired when Enter dispatches.
+type runMarker struct{ id string }
+
+func TestEnterDispatchesCommandRun(t *testing.T) {
+	cmd := Command{
+		Name: "Open file",
+		Run:  func() tea.Cmd { return func() tea.Msg { return runMarker{id: "open"} } },
+	}
+
+	m := New(WithCommands([]Item{cmd}))
+	m.Focus()
+	m.input.SetValue(">")
+
+	m, dispatched := m.Update(arrowKey(tea.KeyEnter))
+	if dispatched == nil {
+		t.Fatal("Enter returned nil cmd, expected dispatch")
+	}
+
+	// The batched cmd produces a BatchMsg containing the SelectedMsg
+	// emitter and the Command's Run cmd.
+	batchMsg, ok := dispatched().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("dispatched msg = %T, want tea.BatchMsg", dispatched())
+	}
+	if len(batchMsg) != 2 {
+		t.Fatalf("BatchMsg holds %d cmds, want 2", len(batchMsg))
+	}
+
+	var sawSelected, sawRun bool
+	for _, c := range batchMsg {
+		switch v := c().(type) {
+		case SelectedMsg:
+			if v.Item.FilterValue() != "Open file" {
+				t.Errorf("SelectedMsg.Item = %q, want Open file", v.Item.FilterValue())
+			}
+			sawSelected = true
+		case runMarker:
+			if v.id != "open" {
+				t.Errorf("runMarker id = %q, want open", v.id)
+			}
+			sawRun = true
+		}
+	}
+	if !sawSelected {
+		t.Error("batch missing SelectedMsg")
+	}
+	if !sawRun {
+		t.Error("batch missing Command.Run output")
+	}
+}
+
+func TestEnterEmitsSelectedMsgWhenRunNil(t *testing.T) {
+	m := New(WithCommands([]Item{Command{Name: "Save", Run: nil}}))
+	m.Focus()
+	m.input.SetValue(">")
+
+	_, dispatched := m.Update(arrowKey(tea.KeyEnter))
+	if dispatched == nil {
+		t.Fatal("Enter returned nil cmd")
+	}
+	msg := dispatched()
+	sel, ok := msg.(SelectedMsg)
+	if !ok {
+		t.Fatalf("dispatched = %T, want SelectedMsg", msg)
+	}
+	if sel.Item.FilterValue() != "Save" {
+		t.Errorf("SelectedMsg.Item = %q, want Save", sel.Item.FilterValue())
+	}
+}
+
+func TestEnterOnNonCommandItem(t *testing.T) {
+	// SearchMode result that isn't a Command: Enter should still
+	// emit SelectedMsg so the host knows what was picked.
+	m := New()
+	m.Focus()
+	m.input.SetValue("query")
+	m.results = []Item{testItem{name: "hit"}}
+
+	_, dispatched := m.Update(arrowKey(tea.KeyEnter))
+	if dispatched == nil {
+		t.Fatal("Enter returned nil cmd")
+	}
+	sel, ok := dispatched().(SelectedMsg)
+	if !ok {
+		t.Fatalf("dispatched = %T, want SelectedMsg", dispatched())
+	}
+	if sel.Item.FilterValue() != "hit" {
+		t.Errorf("SelectedMsg.Item = %q, want hit", sel.Item.FilterValue())
+	}
+}
+
+func TestEnterWithNoSelection(t *testing.T) {
+	// Empty items list → no cmd, no panic.
+	m := New()
+	m.Focus()
+	m.input.SetValue("nothing")
+
+	_, dispatched := m.Update(arrowKey(tea.KeyEnter))
+	if dispatched != nil {
+		t.Errorf("Enter with no selection should return nil cmd, got %v", dispatched())
+	}
+}
+
+func TestEnterNotForwardedToInput(t *testing.T) {
+	// Enter must be consumed; the textinput must not see it (which
+	// in some configurations would otherwise submit/blur the input).
+	m := New(WithCommands([]Item{Command{Name: "a"}}))
+	m.Focus()
+	m.input.SetValue(">a")
+
+	m, _ = m.Update(arrowKey(tea.KeyEnter))
+	if v := m.input.Value(); v != ">a" {
+		t.Errorf("input mutated by Enter: got %q, want %q", v, ">a")
+	}
+}
+
 func TestNavigationWithNoItems(t *testing.T) {
 	// SearchMode + no results → no items. Navigation must be a no-op,
 	// not panic or set cursor out of bounds.

@@ -1,7 +1,8 @@
-// Command palette-example runs the palette bubble standalone. It is a
-// scratchpad for sanity-checking the palette skeleton: type into the
-// input to see the derived Mode and Query update live; press ctrl+c
-// to quit.
+// Command palette-example runs the palette bubble standalone. Type to
+// filter commands (prefix the input with ">"), use ↑/↓ to navigate,
+// Enter to dispatch. Quit dispatches tea.Quit; the other commands set
+// a status line so you can see the SelectedMsg round-trip. ctrl+c
+// always exits.
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 
 type model struct {
 	palette palette.Model
+	status  string
 }
 
 func initialModel() model {
@@ -22,7 +24,12 @@ func initialModel() model {
 		palette.WithCommands([]palette.Item{
 			palette.Command{ID: "open", Name: "Open file", Desc: "Open a file in the editor"},
 			palette.Command{ID: "save", Name: "Save", Desc: "Save the current buffer"},
-			palette.Command{ID: "quit", Name: "Quit", Desc: "Exit the program"},
+			palette.Command{
+				ID:   "quit",
+				Name: "Quit",
+				Desc: "Exit the program",
+				Run:  func() tea.Cmd { return tea.Quit },
+			},
 		}),
 		palette.WithPageSize(3),
 	)
@@ -33,9 +40,19 @@ func initialModel() model {
 func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyPressMsg); ok && k.String() == "ctrl+c" {
-		return m, tea.Quit
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+	case palette.SelectedMsg:
+		if c, ok := msg.Item.(palette.Command); ok {
+			m.status = "ran: " + c.Name
+		} else {
+			m.status = "picked: " + msg.Item.FilterValue()
+		}
 	}
+
 	var cmd tea.Cmd
 	m.palette, cmd = m.palette.Update(msg)
 	return m, cmd
@@ -46,7 +63,11 @@ func (m model) View() tea.View {
 	if m.palette.Mode() == palette.CommandMode {
 		modeName = "command"
 	}
-	status := fmt.Sprintf("\n\nmode: %s   query: %q   (ctrl+c to quit)", modeName, m.palette.Query())
+	status := fmt.Sprintf("\n\nmode: %s   query: %q", modeName, m.palette.Query())
+	if m.status != "" {
+		status += "   " + m.status
+	}
+	status += "   (ctrl+c to quit)"
 	return tea.NewView(m.palette.View() + status)
 }
 
