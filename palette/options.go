@@ -30,11 +30,6 @@ func WithHelp(show bool) Option {
 	return func(m *Model) { m.showHelp = show }
 }
 
-// WithSearch wires up the async search function used in SearchMode.
-func WithSearch(fn SearchFunc) Option {
-	return func(m *Model) { m.search = fn }
-}
-
 // WithDelegate overrides the ItemDelegate used to render items.
 func WithDelegate(d ItemDelegate) Option {
 	return func(m *Model) { m.delegate = d }

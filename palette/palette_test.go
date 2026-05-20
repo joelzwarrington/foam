@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestItemsReflectsMode(t *testing.T) {
 	results := []Item{testItem{name: "hit"}}
 
 	m := New(WithCommands(cmds))
-	m.results = results
+	m.results["search"] = results
 
 	m.input.SetValue("foo")
 	if got := m.Items(); len(got) != 1 || got[0].FilterValue() != "hit" {
@@ -383,6 +384,155 @@ func TestPaginationNoFooterForSinglePage(t *testing.T) {
 	}
 }
 
+// asyncMode builds a Mode whose Search emits a known SearchResultMsg
+// synchronously (test cmds are invoked inline) so we can drive the
+// async lifecycle deterministically without a real clock.
+func asyncMode(name string, results []Item) Mode {
+	return Mode{
+		Name:     name,
+		Debounce: 0,
+		Match: func(s string) bool {
+			return strings.HasPrefix(s, "@"+name) || (name == "search" && !strings.HasPrefix(s, "@"))
+		},
+		Query: func(s string) string { return strings.TrimPrefix(s, "@"+name) },
+		Items: func(m Model, _ string) []Item { return m.Results(name) },
+		Search: func(_ context.Context, q string) tea.Cmd {
+			return func() tea.Msg {
+				return SearchResultMsg{Mode: name, Query: q, Results: results}
+			}
+		},
+	}
+}
+
+func TestSearchDebounceDispatchesAfterTick(t *testing.T) {
+	mode := asyncMode("files", []Item{testItem{name: "hit"}})
+	m := New(WithModes(mode, SearchMode))
+	m.Focus()
+
+	// Simulate a keystroke that lands "@files foo" in the input.
+	m.input.SetValue("@filesfoo")
+	cmd := m.scheduleSearch()
+	if cmd == nil {
+		t.Fatal("scheduleSearch returned nil; expected a debounce tick cmd")
+	}
+
+	// The cmd is a tea.Tick(0, ...) that fires a debounceMsg.
+	dbMsg, ok := cmd().(debounceMsg)
+	if !ok {
+		t.Fatalf("debounce cmd produced %T, want debounceMsg", cmd())
+	}
+
+	// Feed the debounceMsg back; this should dispatch the Search.
+	m, dispatchCmd := m.Update(dbMsg)
+	if !m.loading {
+		t.Error("expected loading=true after debounce dispatch")
+	}
+	if dispatchCmd == nil {
+		t.Fatal("expected a search cmd after debounce")
+	}
+
+	// Drain the batch (search cmd + spinner.Tick); the search cmd
+	// produces a SearchResultMsg.
+	batch, ok := dispatchCmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("dispatch cmd produced %T, want tea.BatchMsg", dispatchCmd())
+	}
+
+	var resultMsg SearchResultMsg
+	for _, c := range batch {
+		if rm, ok := c().(SearchResultMsg); ok {
+			resultMsg = rm
+		}
+	}
+	if resultMsg.Mode != "files" || resultMsg.Query != "foo" {
+		t.Errorf("SearchResultMsg = %+v, want Mode=files Query=foo", resultMsg)
+	}
+
+	// Apply the result.
+	m, _ = m.Update(resultMsg)
+	if m.loading {
+		t.Error("expected loading=false after result")
+	}
+	if got := m.Results("files"); len(got) != 1 || got[0].FilterValue() != "hit" {
+		t.Errorf("Results(files) = %v, want [hit]", got)
+	}
+}
+
+func TestSearchStaleDebounceIgnored(t *testing.T) {
+	mode := asyncMode("files", []Item{testItem{name: "hit"}})
+	m := New(WithModes(mode, SearchMode))
+
+	m.input.SetValue("@filesa")
+	_ = m.scheduleSearch() // gen=1
+	m.input.SetValue("@filesab")
+	cmd := m.scheduleSearch() // gen=2
+	if cmd == nil {
+		t.Fatal("nil cmd from scheduleSearch")
+	}
+
+	// First (stale) debounce: gen=1. Should be ignored.
+	m, dispatch := m.Update(debounceMsg{mode: "files", gen: 1})
+	if m.loading {
+		t.Error("loading=true after stale debounce; expected ignored")
+	}
+	if dispatch != nil {
+		t.Error("dispatch should be nil for stale debounce")
+	}
+}
+
+func TestSearchStaleResultIgnored(t *testing.T) {
+	mode := asyncMode("files", []Item{testItem{name: "hit"}})
+	m := New(WithModes(mode, SearchMode))
+
+	m.input.SetValue("@filesfoo")
+	// Stale result targeting a different query.
+	m, _ = m.Update(SearchResultMsg{
+		Mode: "files", Query: "old", Results: []Item{testItem{name: "stale"}},
+	})
+	if got := m.Results("files"); got != nil {
+		t.Errorf("stale result accepted: %v", got)
+	}
+}
+
+func TestSearchModeSwitchCancelsInFlight(t *testing.T) {
+	// Capture the ctx the search receives so we can assert it gets
+	// cancelled when the mode switches.
+	var capturedCtx context.Context
+	mode := Mode{
+		Name:     "files",
+		Debounce: 0,
+		Match:    func(s string) bool { return strings.HasPrefix(s, "@") },
+		Query:    func(s string) string { return strings.TrimPrefix(s, "@") },
+		Items:    func(m Model, _ string) []Item { return m.Results("files") },
+		Search: func(ctx context.Context, _ string) tea.Cmd {
+			capturedCtx = ctx
+			// Return a cmd that never produces — simulates a long
+			// in-flight request.
+			return func() tea.Msg { return nil }
+		},
+	}
+	m := New(WithModes(mode, SearchMode))
+	m.input.SetValue("@foo")
+	cmd := m.scheduleSearch()
+	dbMsg := cmd().(debounceMsg)
+	m, _ = m.Update(dbMsg)
+
+	if capturedCtx == nil {
+		t.Fatal("Search wasn't dispatched")
+	}
+	if capturedCtx.Err() != nil {
+		t.Error("ctx already cancelled before mode switch")
+	}
+
+	// Switch modes by changing input to something CommandMode claims.
+	m.input.SetValue(">cmd")
+	m.scheduleSearch() // cancel-only path; CommandMode has no Search
+
+	if capturedCtx.Err() == nil {
+		t.Error("expected ctx to be cancelled after mode switch, got nil err")
+	}
+}
+
 // runMarker is what a test Command's Run() emits — lets us assert
 // that Run actually fired when Enter dispatches.
 type runMarker struct{ id string }
@@ -460,7 +610,7 @@ func TestEnterOnNonCommandItem(t *testing.T) {
 	m := New()
 	m.Focus()
 	m.input.SetValue("query")
-	m.results = []Item{testItem{name: "hit"}}
+	m.results["search"] = []Item{testItem{name: "hit"}}
 
 	_, dispatched := m.Update(arrowKey(tea.KeyEnter))
 	if dispatched == nil {
@@ -567,7 +717,7 @@ func TestSelectedBounds(t *testing.T) {
 func TestReset(t *testing.T) {
 	m := New(WithCommands([]Item{Command{Name: "a"}}))
 	m.input.SetValue("hello")
-	m.results = []Item{testItem{name: "x"}}
+	m.results["search"] = []Item{testItem{name: "x"}}
 	m.cursor = 3
 	m.paginator.Page = 2
 	m.loading = true
@@ -577,8 +727,8 @@ func TestReset(t *testing.T) {
 	if m.Value() != "" {
 		t.Errorf("Value() = %q after Reset, want empty", m.Value())
 	}
-	if m.results != nil {
-		t.Errorf("results = %v after Reset, want nil", m.results)
+	if len(m.results) != 0 {
+		t.Errorf("results = %v after Reset, want empty", m.results)
 	}
 	if m.cursor != 0 {
 		t.Errorf("cursor = %d after Reset, want 0", m.cursor)
@@ -595,11 +745,9 @@ func TestOptionsApply(t *testing.T) {
 	cmds := []Item{Command{Name: "open"}}
 	custom := KeyMap{}
 	styles := Styles{}
-	search := SearchFunc(func(string) tea.Cmd { return nil })
 
 	m := New(
 		WithCommands(cmds),
-		WithSearch(search),
 		WithKeyMap(custom),
 		WithStyles(styles),
 		WithPageSize(7),
@@ -608,9 +756,6 @@ func TestOptionsApply(t *testing.T) {
 
 	if len(m.commands) != 1 {
 		t.Errorf("commands not applied: %v", m.commands)
-	}
-	if m.search == nil {
-		t.Error("search not applied")
 	}
 	if m.paginator.PerPage != 7 {
 		t.Errorf("paginator.PerPage = %d, want 7", m.paginator.PerPage)

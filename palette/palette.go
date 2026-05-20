@@ -6,7 +6,9 @@
 package palette
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -24,7 +26,8 @@ import (
 // as the fallback (last entry).
 type Mode struct {
 	// Name identifies the mode for logging and host status displays.
-	// Not rendered by the palette itself.
+	// Also used as the cache key for Search results — see
+	// Model.Results.
 	Name string
 
 	// Prompt is the glyph rendered before the input field. Should be
@@ -32,6 +35,11 @@ type Mode struct {
 	// text doesn't shift when the spinner swaps in during search. An
 	// empty Prompt falls back to defaultPrompt ("◌ ").
 	Prompt string
+
+	// Debounce is how long the palette waits after the input stops
+	// changing before invoking Search. Zero means dispatch on the
+	// next tick. Ignored when Search is nil.
+	Debounce time.Duration
 
 	// Match reports whether this mode applies to the given raw input.
 	// A nil Match matches anything.
@@ -43,8 +51,20 @@ type Mode struct {
 	Query func(input string) string
 
 	// Items returns the candidate items for this mode given the
-	// palette state and the extracted query. A nil Items returns nil.
+	// palette state and the extracted query. For sync modes it does
+	// the filtering inline; for async modes it typically reads from
+	// the palette's Results cache that Search populates. A nil Items
+	// returns nil.
 	Items func(m Model, query string) []Item
+
+	// Search is the async dispatcher. When the input changes inside
+	// this mode and the debounce window elapses, the palette calls
+	// Search and the returned tea.Cmd must eventually yield a
+	// SearchResultMsg with the matching Mode name. The ctx is
+	// cancelled when a newer search supersedes this one or when the
+	// active mode changes — implementations should pass it through
+	// to their HTTP/DB call. Nil means the mode is purely synchronous.
+	Search func(ctx context.Context, query string) tea.Cmd
 }
 
 // defaultPrompt is the fallback prompt glyph for modes that don't set
@@ -68,19 +88,27 @@ var CommandMode = Mode{
 }
 
 // SearchMode is the default fallback. It matches any input not
-// claimed by an earlier mode and surfaces the most recent async
-// search results.
+// claimed by an earlier mode and reads from the palette's cached
+// results bucket for its Name. Hosts override Search via WithModes
+// to actually populate results.
 var SearchMode = Mode{
-	Name:   "search",
-	Prompt: defaultPrompt,
-	Match:  nil, // nil = catch-all
-	Query:  nil, // nil = identity
-	Items:  func(m Model, _ string) []Item { return m.results },
+	Name:     "search",
+	Prompt:   defaultPrompt,
+	Debounce: 150 * time.Millisecond,
+	Match:    nil, // nil = catch-all
+	Query:    nil, // nil = identity
+	Items: func(m Model, _ string) []Item {
+		return m.results["search"]
+	},
 }
 
-// SearchFunc is the caller-provided async search. It returns a tea.Cmd
-// that eventually yields a SearchResultMsg.
-type SearchFunc func(query string) tea.Cmd
+// debounceMsg is an internal tick that fires after a mode's Debounce
+// window. The palette dispatches the mode's Search closure only when
+// the generation hasn't moved on (no newer keystroke).
+type debounceMsg struct {
+	mode string
+	gen  int
+}
 
 // Model is the palette bubble.
 type Model struct {
@@ -91,9 +119,12 @@ type Model struct {
 
 	modes    []Mode
 	commands []Item
-	results  []Item
+	results  map[string][]Item // per-mode cache: keyed by Mode.Name
 	delegate ItemDelegate
-	search   SearchFunc
+
+	// search machinery
+	searchGen    int                // increments on each input change for stale-tick rejection
+	searchCancel context.CancelFunc // cancels the in-flight Search context
 
 	title    string
 	cursor   int
@@ -129,6 +160,7 @@ func New(opts ...Option) Model {
 		help:      help.New(),
 		modes:     []Mode{CommandMode, SearchMode},
 		delegate:  NewDefaultDelegate(),
+		results:   map[string][]Item{},
 		showHelp:  true,
 		KeyMap:    DefaultKeyMap(),
 		Styles:    DefaultStyles(),
@@ -143,35 +175,46 @@ func New(opts ...Option) Model {
 // command — callers compose it into their own program's Init.
 func (m Model) Init() tea.Cmd { return nil }
 
-// Update handles cursor navigation, forwards remaining messages to
-// the textinput, tracks terminal size, and resets the cursor whenever
-// the input value changes (so it can't dangle past the end of a
-// freshly filtered command list). Paging and Enter dispatch land in
-// later milestones.
+// Update handles cursor navigation, the async search lifecycle
+// (debounce → dispatch → result), spinner ticks, and forwards
+// remaining messages to the textinput.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	if ws, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width = ws.Width
-		m.height = ws.Height
-	}
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 
-	// Navigation and Execute keys are consumed by the palette and NOT
-	// forwarded to the textinput, which would otherwise treat ↑/↓ as
-	// suggestion navigation and Enter as input submission.
-	if kp, ok := msg.(tea.KeyPressMsg); ok {
+	case debounceMsg:
+		return m.handleDebounce(msg)
+
+	case SearchResultMsg:
+		return m.handleSearchResult(msg)
+
+	case spinner.TickMsg:
+		if !m.loading {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case tea.KeyPressMsg:
+		// Navigation and Execute keys are consumed by the palette and
+		// NOT forwarded to the textinput.
 		switch {
-		case key.Matches(kp, m.KeyMap.Down):
+		case key.Matches(msg, m.KeyMap.Down):
 			m.moveCursor(1)
 			return m, nil
-		case key.Matches(kp, m.KeyMap.Up):
+		case key.Matches(msg, m.KeyMap.Up):
 			m.moveCursor(-1)
 			return m, nil
-		case key.Matches(kp, m.KeyMap.NextPage):
+		case key.Matches(msg, m.KeyMap.NextPage):
 			m.pageBy(1)
 			return m, nil
-		case key.Matches(kp, m.KeyMap.PrevPage):
+		case key.Matches(msg, m.KeyMap.PrevPage):
 			m.pageBy(-1)
 			return m, nil
-		case key.Matches(kp, m.KeyMap.Execute):
+		case key.Matches(msg, m.KeyMap.Execute):
 			return m, m.execute()
 		}
 	}
@@ -181,8 +224,69 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	m.input, cmd = m.input.Update(msg)
 	if m.input.Value() != prev {
 		m.cursor = 0
+		if searchCmd := m.scheduleSearch(); searchCmd != nil {
+			return m, tea.Batch(cmd, searchCmd)
+		}
 	}
 	return m, cmd
+}
+
+// scheduleSearch is called whenever the input value changes. It
+// cancels any in-flight Search and, if the now-active mode has a
+// Search closure, schedules a debounce tick that will dispatch it.
+func (m *Model) scheduleSearch() tea.Cmd {
+	// Cancel any in-flight search — we're either coalescing keystrokes
+	// or switching away from the mode that started it.
+	if m.searchCancel != nil {
+		m.searchCancel()
+		m.searchCancel = nil
+	}
+	m.loading = false
+
+	mode := m.Mode()
+	if mode.Search == nil {
+		return nil
+	}
+	m.searchGen++
+	gen := m.searchGen
+	name := mode.Name
+	d := mode.Debounce
+	return tea.Tick(d, func(_ time.Time) tea.Msg {
+		return debounceMsg{mode: name, gen: gen}
+	})
+}
+
+// handleDebounce dispatches the active mode's Search closure when the
+// debounce tick is still current (no newer keystroke superseded it
+// and the user hasn't switched mode).
+func (m Model) handleDebounce(msg debounceMsg) (Model, tea.Cmd) {
+	if msg.gen != m.searchGen {
+		return m, nil // stale: a newer keystroke is pending
+	}
+	mode := m.Mode()
+	if mode.Name != msg.mode || mode.Search == nil {
+		return m, nil // mode switched out from under this tick
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.searchCancel = cancel
+	m.loading = true
+	return m, tea.Batch(mode.Search(ctx, m.Query()), m.spinner.Tick)
+}
+
+// handleSearchResult stores result items in the per-mode cache and
+// clears loading. Stale results (whose Mode or Query no longer
+// matches the current state) are dropped.
+func (m Model) handleSearchResult(msg SearchResultMsg) (Model, tea.Cmd) {
+	mode := m.Mode()
+	if msg.Mode != mode.Name || msg.Query != m.Query() {
+		return m, nil // stale
+	}
+	if m.results == nil {
+		m.results = map[string][]Item{}
+	}
+	m.results[msg.Mode] = msg.Results
+	m.loading = false
+	return m, nil
 }
 
 // ShortHelp returns the compact key list rendered by the help bubble
@@ -418,6 +522,16 @@ func (m Model) Query() string {
 // Value returns the raw input value.
 func (m Model) Value() string { return m.input.Value() }
 
+// Results returns the cached items for the named mode (typically
+// populated by that mode's Search closure via SearchResultMsg). A
+// mode's Items closure usually reads from here.
+func (m Model) Results(modeName string) []Item {
+	return m.results[modeName]
+}
+
+// Loading reports whether a Search is currently in flight.
+func (m Model) Loading() bool { return m.loading }
+
 // Items returns the candidate items for the currently active mode.
 // Returns nil when no mode is active or the mode declares no Items
 // function.
@@ -464,10 +578,15 @@ func (m Model) Page() int { return m.paginator.Page }
 // TotalPages returns the number of pages.
 func (m Model) TotalPages() int { return m.paginator.TotalPages }
 
-// Reset clears the input and result state.
+// Reset clears the input and result state, and cancels any in-flight
+// Search.
 func (m *Model) Reset() {
+	if m.searchCancel != nil {
+		m.searchCancel()
+		m.searchCancel = nil
+	}
 	m.input.SetValue("")
-	m.results = nil
+	m.results = map[string][]Item{}
 	m.cursor = 0
 	m.paginator.Page = 0
 	m.loading = false

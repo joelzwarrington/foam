@@ -1,9 +1,13 @@
 package palette
 
-// SearchResultMsg is the message a SearchFunc eventually emits with
-// the items matching a given query. Err is non-nil if the search
+// SearchResultMsg is the message a Mode's Search closure eventually
+// emits with the items matching a given query. Mode is the Name of
+// the mode that produced this result — the palette uses it to route
+// the items into the right per-mode cache and to reject results from
+// a mode that's no longer active. Err is non-nil if the search
 // failed; Results should be ignored in that case.
 type SearchResultMsg struct {
+	Mode    string
 	Query   string
 	Results []Item
 	Err     error
