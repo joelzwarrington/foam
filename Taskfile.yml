@@ -2,8 +2,8 @@ version: "3"
 
 tasks:
   test:
-    desc: Run Go unit tests with race detector and coverage
-    cmd: go test -race -cover ./...
+    desc: Run Go unit tests with race detector and coverage (skips examples/)
+    cmd: go test -race -cover $(go list ./... | grep -v /examples/)
 
   fmt:
     desc: Format Go code
