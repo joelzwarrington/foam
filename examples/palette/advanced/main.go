@@ -4,6 +4,10 @@
 //	@  file picker    (sync, instant filter as you type)
 //	(nothing)  web search (async, 100ms debounce + ~400ms round-trip)
 //
+// Web search also supports the kind: facet — type "kind:" inside the
+// query to filter results by type (doc / repo / site). Multiple facets
+// stack with free text: "tui kind:repo".
+//
 // Use ↑/↓ to navigate, Enter to dispatch, ctrl+c to quit.
 package main
 
@@ -11,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,11 +32,20 @@ func (f fileItem) Title() string       { return f.name }
 func (f fileItem) Description() string { return "file" }
 
 // webPage is a fake search-engine result.
-type webPage struct{ title, url string }
+type webPage struct{ title, url, kind string }
 
 func (w webPage) FilterValue() string { return w.title }
 func (w webPage) Title() string       { return w.title }
 func (w webPage) Description() string { return w.url }
+
+// kindValue renders one entry in the kind: facet completer.
+type kindValue struct {
+	name, desc string
+}
+
+func (k kindValue) FilterValue() string { return k.name }
+func (k kindValue) Title() string       { return k.name }
+func (k kindValue) Description() string { return k.desc }
 
 // files is the corpus the "@" file picker searches against
 var files = []string{
@@ -58,14 +72,36 @@ var files = []string{
 
 // pages is the corpus the search mode looks through.
 var pages = []webPage{
-	{"Bubble Tea — A powerful TUI framework", "github.com/charmbracelet/bubbletea"},
-	{"Bubbles — Pre-built TUI components", "github.com/charmbracelet/bubbles"},
-	{"Lip Gloss — Style definitions for TUIs", "github.com/charmbracelet/lipgloss"},
-	{"The Elm Architecture", "guide.elm-lang.org/architecture/"},
-	{"Go: A modern programming language", "go.dev"},
-	{"Charm — Beautiful tools for the terminal", "charm.sh"},
-	{"VS Code Command Palette docs", "code.visualstudio.com/docs/getstarted/userinterface"},
-	{"Sublime Text \"Goto Anything\"", "www.sublimetext.com/docs/goto_anything.html"},
+	{"Bubble Tea — A powerful TUI framework", "github.com/charmbracelet/bubbletea", "repo"},
+	{"Bubbles — Pre-built TUI components", "github.com/charmbracelet/bubbles", "repo"},
+	{"Lip Gloss — Style definitions for TUIs", "github.com/charmbracelet/lipgloss", "repo"},
+	{"The Elm Architecture", "guide.elm-lang.org/architecture/", "doc"},
+	{"Go: A modern programming language", "go.dev", "site"},
+	{"Charm — Beautiful tools for the terminal", "charm.sh", "site"},
+	{"VS Code Command Palette docs", "code.visualstudio.com/docs/getstarted/userinterface", "doc"},
+	{"Sublime Text \"Goto Anything\"", "www.sublimetext.com/docs/goto_anything.html", "doc"},
+}
+
+// kindFacet completes the "kind:" filter in web search. Sync — values
+// are a small fixed set.
+var kindFacet = palette.Facet{
+	Name: "kind",
+	Desc: "kind: filter results by type",
+	Items: func(partial string) []palette.Item {
+		kinds := []kindValue{
+			{"doc", "documentation"},
+			{"repo", "source code"},
+			{"site", "homepage / landing page"},
+		}
+		out := make([]palette.Item, 0, len(kinds))
+		needle := strings.ToLower(partial)
+		for _, k := range kinds {
+			if partial == "" || strings.HasPrefix(k.name, needle) {
+				out = append(out, k)
+			}
+		}
+		return out
+	},
 }
 
 // filesMode is purely synchronous: each keystroke re-filters the
@@ -89,12 +125,14 @@ var filesMode = palette.Mode{
 
 // searchMode replaces the built-in palette.SearchMode for this demo.
 // It's the catch-all (no prefix) and does a debounced async web
-// search with a 400 ms simulated round-trip, demonstrating the spinner.
+// search with a 400 ms simulated round-trip, demonstrating the
+// spinner and the kind: facet.
 var searchMode = palette.Mode{
 	Name:     "search",
 	Debounce: 100 * time.Millisecond,
 	Match:    nil, // catch-all
 	Query:    nil, // identity
+	Facets:   []palette.Facet{kindFacet},
 	Items: func(m palette.Model, _ string) []palette.Item {
 		return m.Results("search")
 	},
@@ -103,10 +141,15 @@ var searchMode = palette.Mode{
 			if ctx.Err() != nil {
 				return nil
 			}
+			text, parsed := palette.ParseFacets(q, []palette.Facet{kindFacet})
+			kinds := parsed["kind"]
 			items := make([]palette.Item, 0)
-			needle := strings.ToLower(q)
+			needle := strings.ToLower(text)
 			for _, p := range pages {
-				if q == "" ||
+				if len(kinds) > 0 && !slices.Contains(kinds, p.kind) {
+					continue
+				}
+				if text == "" ||
 					strings.Contains(strings.ToLower(p.title), needle) ||
 					strings.Contains(strings.ToLower(p.url), needle) {
 					items = append(items, p)

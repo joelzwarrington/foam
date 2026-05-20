@@ -23,6 +23,15 @@ Enter
 Sleep 1500ms
 Backspace 7
 
+# Facet: kind:doc narrows search to documentation results.
+Type "kind:"
+Sleep 800ms
+Type "doc Elm"
+Wait+Screen /elm-lang/
+Enter
+Sleep 1500ms
+Backspace 12
+
 # Command mode: `>` filters the local command list.
 Type "> Open"
 Sleep 400ms
