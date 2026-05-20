@@ -59,10 +59,123 @@ func TestItemsReflectsMode(t *testing.T) {
 		t.Errorf("SearchMode Items() = %v, want results", got)
 	}
 
-	m.input.SetValue("> foo")
+	// Empty query in CommandMode returns the full command list, in
+	// declared order. Filtering is covered separately.
+	m.input.SetValue(">")
 	if got := m.Items(); len(got) != 2 || got[0].FilterValue() != "open" {
 		t.Errorf("CommandMode Items() = %v, want commands", got)
 	}
+}
+
+func TestCommandModeFuzzyFilter(t *testing.T) {
+	cmds := []Item{
+		Command{Name: "Open file"},
+		Command{Name: "Save"},
+		Command{Name: "Open in new tab"},
+		Command{Name: "Quit"},
+	}
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string // expected FilterValues in order
+	}{
+		{
+			name:  "empty query returns all in declared order",
+			query: "",
+			want:  []string{"Open file", "Save", "Open in new tab", "Quit"},
+		},
+		{
+			name:  "exact substring matches",
+			query: "open",
+			want:  []string{"Open file", "Open in new tab"},
+		},
+		{
+			name:  "case insensitive",
+			query: "QuI",
+			want:  []string{"Quit"},
+		},
+		{
+			name:  "fuzzy non-contiguous chars",
+			query: "qt", // Q...uiT
+			want:  []string{"Quit"},
+		},
+		{
+			name:  "no matches returns empty",
+			query: "zzzz",
+			want:  []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(WithCommands(cmds))
+			m.input.SetValue(">" + tc.query)
+
+			got := m.Items()
+			if len(got) != len(tc.want) {
+				t.Fatalf("Items() len = %d, want %d\ngot:  %v\nwant: %v", len(got), len(tc.want), itemNames(got), tc.want)
+			}
+			for i, w := range tc.want {
+				if got[i].FilterValue() != w {
+					t.Errorf("Items()[%d] = %q, want %q (full got: %v)", i, got[i].FilterValue(), w, itemNames(got))
+				}
+			}
+		})
+	}
+}
+
+func TestCursorResetsOnInputChange(t *testing.T) {
+	m := New(WithCommands([]Item{
+		Command{Name: "Open file"},
+		Command{Name: "Save"},
+		Command{Name: "Quit"},
+	}))
+	m.Focus()
+	m.input.SetValue(">")
+	m.cursor = 2
+
+	// Simulate a keypress that mutates the input value.
+	m, _ = m.Update(typeKey(t, "a"))
+
+	if m.cursor != 0 {
+		t.Errorf("cursor = %d after input change, want 0", m.cursor)
+	}
+}
+
+func TestCursorUnchangedWhenInputUnchanged(t *testing.T) {
+	m := New(WithCommands([]Item{Command{Name: "a"}, Command{Name: "b"}, Command{Name: "c"}}))
+	m.Focus()
+	m.input.SetValue(">")
+	m.cursor = 1
+
+	// Send a message that the textinput doesn't consume as text (e.g.,
+	// a window-size change). Cursor must not reset.
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d after non-input msg, want 1 (unchanged)", m.cursor)
+	}
+}
+
+// itemNames extracts FilterValues for readable test failures.
+func itemNames(items []Item) []string {
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.FilterValue()
+	}
+	return out
+}
+
+// typeKey returns a tea.KeyPressMsg corresponding to a single typed
+// character, suitable for feeding through Model.Update.
+func typeKey(t *testing.T, ch string) tea.KeyPressMsg {
+	t.Helper()
+	r := []rune(ch)
+	if len(r) != 1 {
+		t.Fatalf("typeKey expects a single rune, got %q", ch)
+	}
+	return tea.KeyPressMsg{Code: r[0], Text: ch}
 }
 
 func TestSelectedBounds(t *testing.T) {

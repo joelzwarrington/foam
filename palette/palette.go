@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/sahilm/fuzzy"
 )
 
 // Mode is derived from the input value.
@@ -82,16 +83,21 @@ func New(opts ...Option) Model {
 // command — callers compose it into their own program's Init.
 func (m Model) Init() tea.Cmd { return nil }
 
-// Update is a placeholder pass-through to the textinput, plus
-// terminal-size tracking. Message routing (mode switching, debouncing,
-// spinner ticks, pagination keys) is implemented in later milestones.
+// Update forwards messages to the textinput, tracks terminal size,
+// and resets the cursor whenever the input value changes (so it can't
+// dangle past the end of a freshly filtered command list). Cursor
+// movement, paging, and Enter dispatch land in later milestones.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if ws, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = ws.Width
 		m.height = ws.Height
 	}
+	prev := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	if m.input.Value() != prev {
+		m.cursor = 0
+	}
 	return m, cmd
 }
 
@@ -207,13 +213,33 @@ func (m Model) Query() string {
 func (m Model) Value() string { return m.input.Value() }
 
 // Items returns the currently visible (filtered) items. In CommandMode
-// this is the predefined command list; in SearchMode it's the most
-// recent search results.
+// this is the predefined command list fuzzy-filtered by Query(); when
+// the query is empty all commands are returned. In SearchMode it's
+// the most recent search results, unfiltered locally.
 func (m Model) Items() []Item {
 	if m.Mode() == CommandMode {
-		return m.commands
+		return filterCommands(m.commands, m.Query())
 	}
 	return m.results
+}
+
+// filterCommands runs a fuzzy match of query against each command's
+// FilterValue and returns the matches ordered by relevance (best
+// first). An empty query returns the input unchanged.
+func filterCommands(cmds []Item, query string) []Item {
+	if query == "" {
+		return cmds
+	}
+	targets := make([]string, len(cmds))
+	for i, c := range cmds {
+		targets[i] = c.FilterValue()
+	}
+	matches := fuzzy.Find(query, targets)
+	out := make([]Item, len(matches))
+	for i, mt := range matches {
+		out[i] = cmds[mt.Index]
+	}
+	return out
 }
 
 // Selected returns the highlighted item, or nil if none.
