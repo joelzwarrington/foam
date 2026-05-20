@@ -67,11 +67,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() tea.View {
-	modeName := "search"
-	if m.palette.Mode() == palette.CommandMode {
-		modeName = "command"
-	}
-	status := fmt.Sprintf("\n\nmode: %s   query: %q", modeName, m.palette.Query())
+	status := fmt.Sprintf("\n\nmode: %s   query: %q", m.palette.Mode().Name, m.palette.Query())
 	if m.status != "" {
 		status += "   " + m.status
 	}

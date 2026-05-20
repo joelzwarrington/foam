@@ -17,16 +17,16 @@ func TestModeAndQuery(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		wantMode Mode
+		wantMode string // mode Name
 		wantQry  string
 	}{
-		{"empty", "", SearchMode, ""},
-		{"plain text", "foo", SearchMode, "foo"},
-		{"just bracket", ">", CommandMode, ""},
-		{"bracket space", "> ", CommandMode, ""},
-		{"command", "> open", CommandMode, "open"},
-		{"command no space", ">open", CommandMode, "open"},
-		{"bracket inside", "foo > bar", SearchMode, "foo > bar"},
+		{"empty", "", "search", ""},
+		{"plain text", "foo", "search", "foo"},
+		{"just bracket", ">", "command", ""},
+		{"bracket space", "> ", "command", ""},
+		{"command", "> open", "command", "open"},
+		{"command no space", ">open", "command", "open"},
+		{"bracket inside", "foo > bar", "search", "foo > bar"},
 	}
 
 	for _, tc := range tests {
@@ -34,8 +34,8 @@ func TestModeAndQuery(t *testing.T) {
 			m := New()
 			m.input.SetValue(tc.input)
 
-			if got := m.Mode(); got != tc.wantMode {
-				t.Errorf("Mode() = %v, want %v", got, tc.wantMode)
+			if got := m.Mode().Name; got != tc.wantMode {
+				t.Errorf("Mode() = %s, want %s", got, tc.wantMode)
 			}
 			if got := m.Query(); got != tc.wantQry {
 				t.Errorf("Query() = %q, want %q", got, tc.wantQry)
@@ -45,6 +45,65 @@ func TestModeAndQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCustomMode(t *testing.T) {
+	// Caller registers a custom "@"-prefixed file-picker mode that
+	// sits between CommandMode and SearchMode in priority.
+	files := []Item{testItem{name: "main.go"}, testItem{name: "README.md"}, testItem{name: "go.mod"}}
+
+	filesMode := Mode{
+		Name: "files",
+		Match: func(input string) bool {
+			return strings.HasPrefix(input, "@")
+		},
+		Query: func(input string) string {
+			return strings.TrimSpace(strings.TrimPrefix(input, "@"))
+		},
+		Items: func(_ Model, q string) []Item {
+			return FilterFuzzy(files, q)
+		},
+	}
+
+	m := New(WithModes(CommandMode, filesMode, SearchMode))
+
+	cases := []struct {
+		input        string
+		wantMode     string
+		wantItemHead string // FilterValue of the first item, or "" if no items
+	}{
+		{">foo", "command", ""},    // CommandMode wins on ">"
+		{"@go", "files", "go.mod"}, // FilesMode matches "@"; fuzzy ranks go.mod first
+		{"@readme", "files", "README.md"},
+		{"unprefixed", "search", ""}, // falls through to SearchMode (no results seeded)
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			m.input.SetValue(tc.input)
+
+			if got := m.Mode().Name; got != tc.wantMode {
+				t.Errorf("Mode = %s, want %s", got, tc.wantMode)
+			}
+			items := m.Items()
+			if tc.wantItemHead == "" {
+				if len(items) != 0 {
+					t.Errorf("Items() = %v, want empty", itemNames(items))
+				}
+			} else {
+				if len(items) == 0 || items[0].FilterValue() != tc.wantItemHead {
+					t.Errorf("Items()[0] = %q, want %q", itemHead(items), tc.wantItemHead)
+				}
+			}
+		})
+	}
+}
+
+func itemHead(items []Item) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0].FilterValue()
 }
 
 func TestItemsReflectsMode(t *testing.T) {

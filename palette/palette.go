@@ -18,15 +18,53 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
-// Mode is derived from the input value.
-type Mode int
+// Mode describes how the palette interprets the current input. The
+// active mode is the first one in the configured list whose Match
+// returns true; a nil Match matches anything, so it's typically used
+// as the fallback (last entry).
+type Mode struct {
+	// Name identifies the mode for logging and host status displays.
+	// Not rendered by the palette itself.
+	Name string
 
-const (
-	// SearchMode is the default — input does not start with ">".
-	SearchMode Mode = iota
-	// CommandMode is active when the input starts with ">".
-	CommandMode
-)
+	// Match reports whether this mode applies to the given raw input.
+	// A nil Match matches anything.
+	Match func(input string) bool
+
+	// Query extracts the meaningful query string from the raw input —
+	// typically by stripping a leading prefix. A nil Query returns
+	// the input unchanged.
+	Query func(input string) string
+
+	// Items returns the candidate items for this mode given the
+	// palette state and the extracted query. A nil Items returns nil.
+	Items func(m Model, query string) []Item
+}
+
+// CommandMode is the default ">"-prefixed mode. Items are the
+// configured commands, fuzzy-filtered by the query.
+var CommandMode = Mode{
+	Name: "command",
+	Match: func(input string) bool {
+		return strings.HasPrefix(input, ">")
+	},
+	Query: func(input string) string {
+		return strings.TrimSpace(strings.TrimPrefix(input, ">"))
+	},
+	Items: func(m Model, q string) []Item {
+		return FilterFuzzy(m.commands, q)
+	},
+}
+
+// SearchMode is the default fallback. It matches any input not
+// claimed by an earlier mode and surfaces the most recent async
+// search results.
+var SearchMode = Mode{
+	Name:  "search",
+	Match: nil, // nil = catch-all
+	Query: nil, // nil = identity
+	Items: func(m Model, _ string) []Item { return m.results },
+}
 
 // SearchFunc is the caller-provided async search. It returns a tea.Cmd
 // that eventually yields a SearchResultMsg.
@@ -39,6 +77,7 @@ type Model struct {
 	paginator paginator.Model
 	help      help.Model
 
+	modes    []Mode
 	commands []Item
 	results  []Item
 	delegate ItemDelegate
@@ -76,6 +115,7 @@ func New(opts ...Option) Model {
 		spinner:   sp,
 		paginator: pg,
 		help:      help.New(),
+		modes:     []Mode{CommandMode, SearchMode},
 		delegate:  NewDefaultDelegate(),
 		showHelp:  true,
 		KeyMap:    DefaultKeyMap(),
@@ -329,52 +369,60 @@ func (m *Model) Focus() tea.Cmd { return m.input.Focus() }
 // Blur removes keyboard focus from the palette.
 func (m *Model) Blur() { m.input.Blur() }
 
-// Mode is derived from the input value.
+// Mode returns the currently active Mode — the first in the
+// configured list whose Match returns true (or whose Match is nil).
+// Returns a zero Mode when no modes are configured.
 func (m Model) Mode() Mode {
-	if strings.HasPrefix(m.input.Value(), ">") {
-		return CommandMode
+	input := m.input.Value()
+	for _, mode := range m.modes {
+		if mode.Match == nil || mode.Match(input) {
+			return mode
+		}
 	}
-	return SearchMode
+	return Mode{}
 }
 
-// Query returns the input with the leading ">" stripped in CommandMode.
+// Query returns the active mode's interpretation of the input value
+// (typically with a leading prefix stripped). Falls back to the raw
+// input when the active mode has no Query function.
 func (m Model) Query() string {
-	v := m.input.Value()
-	if strings.HasPrefix(v, ">") {
-		return strings.TrimSpace(v[1:])
+	mode := m.Mode()
+	if mode.Query == nil {
+		return m.input.Value()
 	}
-	return v
+	return mode.Query(m.input.Value())
 }
 
 // Value returns the raw input value.
 func (m Model) Value() string { return m.input.Value() }
 
-// Items returns the currently visible (filtered) items. In CommandMode
-// this is the predefined command list fuzzy-filtered by Query(); when
-// the query is empty all commands are returned. In SearchMode it's
-// the most recent search results, unfiltered locally.
+// Items returns the candidate items for the currently active mode.
+// Returns nil when no mode is active or the mode declares no Items
+// function.
 func (m Model) Items() []Item {
-	if m.Mode() == CommandMode {
-		return filterCommands(m.commands, m.Query())
+	mode := m.Mode()
+	if mode.Items == nil {
+		return nil
 	}
-	return m.results
+	return mode.Items(m, m.Query())
 }
 
-// filterCommands runs a fuzzy match of query against each command's
-// FilterValue and returns the matches ordered by relevance (best
-// first). An empty query returns the input unchanged.
-func filterCommands(cmds []Item, query string) []Item {
+// FilterFuzzy returns items whose FilterValue is a fuzzy-subsequence
+// match for query, ordered by relevance (best first). An empty query
+// returns the input unchanged. Exported so custom Mode.Items closures
+// can reuse the same filter logic as the built-in CommandMode.
+func FilterFuzzy(items []Item, query string) []Item {
 	if query == "" {
-		return cmds
+		return items
 	}
-	targets := make([]string, len(cmds))
-	for i, c := range cmds {
+	targets := make([]string, len(items))
+	for i, c := range items {
 		targets[i] = c.FilterValue()
 	}
 	matches := fuzzy.Find(query, targets)
 	out := make([]Item, len(matches))
 	for i, mt := range matches {
-		out[i] = cmds[mt.Index]
+		out[i] = items[mt.Index]
 	}
 	return out
 }
