@@ -90,6 +90,14 @@ var commandsMode = palette.Mode{
 	},
 }
 
+// closeOverlayMsg is what palette.WithOnExecute emits when the user
+// presses Enter on a selection. The host catches it to dismiss the
+// palette and update its status line — both reactions happen in the
+// same Update tick as the keypress.
+type closeOverlayMsg struct {
+	picked palette.Item
+}
+
 type model struct {
 	palette       palette.Model
 	help          help.Model
@@ -103,6 +111,14 @@ func initialModel() model {
 	p := palette.New(
 		palette.WithModes(commandsMode),
 		palette.WithPageSize(5),
+		// OnExecute runs synchronously inside the palette's Update
+		// when Enter fires on a selection. The returned cmd is batched
+		// alongside SelectedMsg and Command.Run, so the overlay-close
+		// arrives in the same tick — no need to pattern-match
+		// SelectedMsg in the host.
+		palette.WithOnExecute(func(item palette.Item) tea.Cmd {
+			return func() tea.Msg { return closeOverlayMsg{picked: item} }
+		}),
 	)
 	p.SetWidth(paletteWidth)
 
@@ -146,17 +162,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case palette.SelectedMsg:
-		if c, ok := msg.Item.(palette.Command); ok {
+	case closeOverlayMsg:
+		// Dismiss the overlay and record what was picked. This msg is
+		// emitted by the palette's WithOnExecute hook (see
+		// initialModel), so it arrives in the same tick as Enter —
+		// without the host having to pattern-match palette.SelectedMsg.
+		if c, ok := msg.picked.(palette.Command); ok {
 			m.status = "ran: " + c.Name
 		}
-		// Auto-close on selection.
 		m.visible = false
 		m.palette.Blur()
 		m.palette.Reset()
-		var cmd tea.Cmd
-		m.palette, cmd = m.palette.Update(msg)
-		return m, cmd
+		return m, nil
 	}
 
 	// Gate input: when the palette is visible, only the palette gets
