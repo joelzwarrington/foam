@@ -1,6 +1,9 @@
 package palette
 
-import "charm.land/bubbles/v2/paginator"
+import (
+	"charm.land/bubbles/v2/paginator"
+	tea "charm.land/bubbletea/v2"
+)
 
 // Option configures a palette Model. Apply with New(...Option).
 type Option func(*Model)
@@ -34,6 +37,21 @@ func WithHelp(show bool) Option {
 // WithDelegate overrides the ItemDelegate used to render items.
 func WithDelegate(d ItemDelegate) Option {
 	return func(m *Model) { m.delegate = d }
+}
+
+// WithOnExecute registers a callback fired synchronously inside the
+// palette's Update when the user presses Execute (Enter) on a
+// highlighted item. The returned tea.Cmd is batched alongside the
+// SelectedMsg dispatch and any Command.Run() cmd, so hosts can:
+//
+//   - read the selected Item without pattern-matching on SelectedMsg;
+//   - return a "close overlay" / "dispatch action" cmd in the same
+//     tick the keypress was received;
+//   - keep Command.Run chaining cleanly (the hook is additive).
+//
+// Return nil to opt out of adding a cmd for a particular item.
+func WithOnExecute(fn func(Item) tea.Cmd) Option {
+	return func(m *Model) { m.onExecute = fn }
 }
 
 // WithKeyMap overrides the default keybindings.

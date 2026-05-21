@@ -111,9 +111,10 @@ type Model struct {
 	paginator paginator.Model
 	help      help.Model
 
-	modes    []Mode
-	results  map[string][]Item // per-mode cache: keyed by Mode.Name
-	delegate ItemDelegate
+	modes     []Mode
+	results   map[string][]Item // per-mode cache: keyed by Mode.Name
+	delegate  ItemDelegate
+	onExecute func(Item) tea.Cmd // optional synchronous Enter hook; see WithOnExecute
 
 	// search machinery
 	searchGen    int                // increments on each input change for stale-tick rejection
@@ -402,13 +403,26 @@ func (m Model) execute() tea.Cmd {
 	if sel == nil {
 		return nil
 	}
-	selectMsg := func() tea.Msg { return SelectedMsg{Item: sel} }
+	cmds := []tea.Cmd{
+		func() tea.Msg { return SelectedMsg{Item: sel} },
+	}
 	if c, ok := sel.(Command); ok && c.Run != nil {
 		if runCmd := c.Run(); runCmd != nil {
-			return tea.Batch(selectMsg, runCmd)
+			cmds = append(cmds, runCmd)
 		}
 	}
-	return selectMsg
+	// OnExecute fires synchronously here so hosts can react to the
+	// selection inside the same Update tick — Command.Run still chains
+	// in the batch alongside it.
+	if m.onExecute != nil {
+		if hookCmd := m.onExecute(sel); hookCmd != nil {
+			cmds = append(cmds, hookCmd)
+		}
+	}
+	if len(cmds) == 1 {
+		return cmds[0]
+	}
+	return tea.Batch(cmds...)
 }
 
 // moveCursor shifts the selection by delta, wrapping at both ends. A
