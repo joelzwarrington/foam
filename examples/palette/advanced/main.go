@@ -108,9 +108,10 @@ var kindFacet = palette.Facet{
 // hardcoded corpus inline, so results update instantly with no
 // debounce and no spinner.
 var filesMode = palette.Mode{
-	Name:  "files",
-	Match: func(s string) bool { return strings.HasPrefix(s, "@") },
-	Query: func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, "@")) },
+	Name:         "files",
+	Match:        func(s string) bool { return strings.HasPrefix(s, "@") },
+	Query:        func(s string) string { return strings.TrimSpace(strings.TrimPrefix(s, "@")) },
+	EmptyMessage: "No files match that name",
 	Items: func(_ palette.Model, q string) []palette.Item {
 		items := make([]palette.Item, 0)
 		needle := strings.ToLower(q)
@@ -198,6 +199,7 @@ func initialModel() model {
 	p := palette.New(
 		palette.WithModes(commandsMode, filesMode, searchMode),
 		palette.WithPageSize(4),
+		palette.WithEmptyMessage("No results"),
 	)
 	p.Focus()
 	return model{palette: p}

@@ -97,6 +97,16 @@ func TestViewGoldens(t *testing.T) {
 			},
 		},
 		{
+			name: "search_empty_with_message",
+			setup: func() Model {
+				m := New(WithModes(searchMode()), WithPageSize(3), WithEmptyMessage("No matches"))
+				m.input.SetValue("foo")
+				m.results["search"] = []Item{}
+				m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+				return m
+			},
+		},
+		{
 			name: "pagination_page_two_of_three",
 			setup: func() Model {
 				m := New(withSeeded(manyItems), WithPageSize(4))

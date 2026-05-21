@@ -48,3 +48,10 @@ Type "README"
 Sleep 400ms
 Enter
 Sleep 600ms
+
+# Empty state: querying for a file that doesn't exist shows the
+# mode-specific empty message.
+Backspace 6
+Type ".env"
+Wait+Screen /No files match/
+Sleep 1500ms

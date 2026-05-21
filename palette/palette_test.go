@@ -1152,6 +1152,78 @@ func TestViewWithNoItems(t *testing.T) {
 	}
 }
 
+func TestEmptyMessagePaletteDefault(t *testing.T) {
+	m := New(WithModes(searchMode()), WithEmptyMessage("Nothing here"))
+	m.input.SetValue("foo")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	if !strings.Contains(out, "Nothing here") {
+		t.Errorf("View() missing palette-level empty message\n--- output ---\n%s", out)
+	}
+}
+
+func TestEmptyMessageModeOverridesPalette(t *testing.T) {
+	mode := searchMode()
+	mode.EmptyMessage = "Mode says nothing"
+	m := New(WithModes(mode), WithEmptyMessage("Palette default"))
+	m.input.SetValue("foo")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	if !strings.Contains(out, "Mode says nothing") {
+		t.Errorf("View() missing per-mode empty message\n--- output ---\n%s", out)
+	}
+	if strings.Contains(out, "Palette default") {
+		t.Errorf("View() should not render palette default when mode overrides\n--- output ---\n%s", out)
+	}
+}
+
+func TestEmptyMessageSuppressedOnEmptyInput(t *testing.T) {
+	m := New(WithModes(searchMode()), WithEmptyMessage("Nothing here"))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	if strings.Contains(out, "Nothing here") {
+		t.Errorf("View() should suppress empty message when input is empty\n--- output ---\n%s", out)
+	}
+}
+
+func TestEmptyMessageSuppressedWhileLoading(t *testing.T) {
+	m := New(WithModes(searchMode()), WithEmptyMessage("Nothing here"))
+	m.input.SetValue("foo")
+	m.loading = true
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	out := m.View()
+	if strings.Contains(out, "Nothing here") {
+		t.Errorf("View() should suppress empty message while a search is in flight\n--- output ---\n%s", out)
+	}
+}
+
+func TestEmptyMessageSuppressedDuringFacetCompletion(t *testing.T) {
+	mode := Mode{
+		Name:         "search",
+		EmptyMessage: "Nothing here",
+		Items:        func(_ Model, _ string) []Item { return nil },
+		Facets:       []Facet{labelFacet},
+	}
+	m := New(WithModes(mode))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	m.input.SetValue("label:b")
+	if cmd := m.reconcileInputState(); cmd != nil {
+		cmd()
+	}
+	if m.facet == nil {
+		t.Fatal("setup: facet completion should be active")
+	}
+
+	out := m.View()
+	if strings.Contains(out, "Nothing here") {
+		t.Errorf("View() should suppress empty message during facet completion\n--- output ---\n%s", out)
+	}
+}
+
 func TestDefaultKeyMapHasBindings(t *testing.T) {
 	km := DefaultKeyMap()
 	bindings := []struct {

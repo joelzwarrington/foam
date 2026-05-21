@@ -42,6 +42,12 @@ type Mode struct {
 	// placeholder set via WithPlaceholder.
 	Placeholder string
 
+	// EmptyMessage is shown in place of the item list when this mode
+	// is active, the user has typed a query, and Items returns no
+	// candidates. Empty falls back to the palette-level message set
+	// via WithEmptyMessage; when both are empty no message is rendered.
+	EmptyMessage string
+
 	// Debounce is how long the palette waits after the input stops
 	// changing before invoking Search. Zero means dispatch on the
 	// next tick. Ignored when Search is nil.
@@ -126,8 +132,9 @@ type Model struct {
 	facetGen     int                // increments on each partial change
 	facetCancel  context.CancelFunc // cancels the in-flight Resolve context
 
-	title       string
-	placeholder string
+	title        string
+	placeholder  string
+	emptyMessage string
 	cursor      int
 	pageSize    int
 	pending     bool // debounce scheduled but Search not yet dispatched
@@ -584,7 +591,18 @@ func (m Model) View() string {
 		pageItems = items[pageStart:pageEnd]
 	}
 
-	if len(pageItems) > 0 || desiredRows > 0 {
+	// Resolve the no-results message for the current mode when the
+	// item list is empty, the user has typed a query, and no other
+	// surface owns the items section (loading spinner, facet picker).
+	emptyMsg := ""
+	if len(items) == 0 && m.input.Value() != "" && !m.loading && !m.pending && m.facet == nil {
+		emptyMsg = m.Mode().EmptyMessage
+		if emptyMsg == "" {
+			emptyMsg = m.emptyMessage
+		}
+	}
+
+	if len(pageItems) > 0 || desiredRows > 0 || emptyMsg != "" {
 		// Populate the render-context fields the delegate reads via
 		// IsSelected() / Width(). cursor and width on rowModel stay
 		// unchanged so Model.Selected() / Cursor() / Width() return
@@ -594,10 +612,14 @@ func (m Model) View() string {
 		rowModel.renderRow = m.cursor - pageStart
 
 		var lines []string
-		for i, item := range pageItems {
-			var buf strings.Builder
-			m.delegate.Render(&buf, rowModel, i, item)
-			lines = append(lines, strings.Split(buf.String(), "\n")...)
+		if len(pageItems) == 0 && emptyMsg != "" {
+			lines = append(lines, indent+m.Styles.EmptyMessage.Render(emptyMsg))
+		} else {
+			for i, item := range pageItems {
+				var buf strings.Builder
+				m.delegate.Render(&buf, rowModel, i, item)
+				lines = append(lines, strings.Split(buf.String(), "\n")...)
+			}
 		}
 
 		// Pad or truncate to a stable height so the palette doesn't

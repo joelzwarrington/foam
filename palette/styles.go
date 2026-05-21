@@ -22,6 +22,10 @@ type Styles struct {
 	// the input is empty. Propagated into the underlying textinput's
 	// Focused / Blurred placeholder styles.
 	Placeholder lipgloss.Style
+	// EmptyMessage styles the no-results message rendered in place of
+	// the item list when the active mode returns no candidates for the
+	// current query. See Mode.EmptyMessage and WithEmptyMessage.
+	EmptyMessage lipgloss.Style
 	// SpinnerLabel styles the text next to the spinner glyph while a
 	// search is in flight.
 	SpinnerLabel lipgloss.Style
@@ -41,6 +45,7 @@ func DefaultStyles() Styles {
 		Indent:       "  ",
 		Prompt:       lipgloss.NewStyle(),
 		Placeholder:  lipgloss.NewStyle().Faint(true),
+		EmptyMessage: lipgloss.NewStyle().Faint(true),
 		SpinnerLabel: lipgloss.NewStyle().Faint(true),
 		FacetHeader:  lipgloss.NewStyle().Faint(true),
 		Footer:       lipgloss.NewStyle().Faint(true),

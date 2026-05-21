@@ -28,6 +28,16 @@ func WithPlaceholder(s string) Option {
 	return func(m *Model) { m.placeholder = s }
 }
 
+// WithEmptyMessage sets the default text shown in place of the item
+// list when the user has typed a query but the active mode returns
+// no candidates. Modes can override this for their own context via
+// Mode.EmptyMessage. The message is suppressed while a search is in
+// flight (the spinner is the loading indicator) and while a facet
+// completion is active.
+func WithEmptyMessage(s string) Option {
+	return func(m *Model) { m.emptyMessage = s }
+}
+
 // WithHelp toggles the short-help row at the bottom of the palette.
 // On by default.
 func WithHelp(show bool) Option {
