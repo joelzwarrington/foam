@@ -378,13 +378,7 @@ func (m Model) handleSearchResult(msg SearchResultMsg) (Model, tea.Cmd) {
 // synthetic "↑↓ navigate" entry for legibility; the actual KeyMap
 // bindings remain split since they're separate actions.
 func (m Model) ShortHelp() []key.Binding {
-	// WithKeys is required even for display-only bindings — help
-	// treats keyless bindings as disabled and skips them.
-	nav := key.NewBinding(
-		key.WithKeys("up", "down"),
-		key.WithHelp("↑↓", "navigate"),
-	)
-	return []key.Binding{nav, m.KeyMap.Execute, m.KeyMap.Cancel}
+	return []key.Binding{m.KeyMap.Navigate, m.KeyMap.Execute, m.KeyMap.Cancel}
 }
 
 // FullHelp returns the expanded key groups for help bubbles displaying

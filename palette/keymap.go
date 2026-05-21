@@ -11,6 +11,13 @@ type KeyMap struct {
 	Up       key.Binding
 	NextPage key.Binding
 	PrevPage key.Binding
+
+	// Navigate is a display-only binding rendered in ShortHelp() as a
+	// combined arrow legend (default "↑↓ navigate"). It's never
+	// matched in Update — Up/Down/Ctrl+P/Ctrl+N do the actual cursor
+	// work. Override the help text (e.g. "↑↓ select") by reassigning
+	// this field.
+	Navigate key.Binding
 }
 
 // DefaultKeyMap returns the standard keybindings.
@@ -39,6 +46,12 @@ func DefaultKeyMap() KeyMap {
 		PrevPage: key.NewBinding(
 			key.WithKeys("left", "ctrl+b", "pgup"),
 			key.WithHelp("←", "prev page"),
+		),
+		Navigate: key.NewBinding(
+			// WithKeys is required even for display-only bindings —
+			// the help bubble treats keyless bindings as disabled.
+			key.WithKeys("up", "down"),
+			key.WithHelp("↑↓", "navigate"),
 		),
 	}
 }
