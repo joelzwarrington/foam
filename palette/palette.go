@@ -518,12 +518,16 @@ func (m Model) View() string {
 
 	// Pick the leading glyph: the spinner while a search is pending,
 	// otherwise the active mode's prompt (or the global default).
+	// Styles.Prompt wraps the static glyph; the spinner owns its own
+	// rendering so we don't restyle it.
 	glyph := m.Mode().Prompt
 	if glyph == "" {
 		glyph = defaultPrompt
 	}
 	if m.loading || m.pending {
 		glyph = m.spinner.View()
+	} else {
+		glyph = m.Styles.Prompt.Render(glyph)
 	}
 
 	// Per-mode placeholder takes precedence over the palette-level one.
@@ -532,6 +536,12 @@ func (m Model) View() string {
 	} else {
 		m.input.Placeholder = m.placeholder
 	}
+	// Sync the placeholder style into the underlying textinput each
+	// render so callers don't have to reach into m.input themselves.
+	tiStyles := m.input.Styles()
+	tiStyles.Focused.Placeholder = m.Styles.Placeholder
+	tiStyles.Blurred.Placeholder = m.Styles.Placeholder
+	m.input.SetStyles(tiStyles)
 
 	// Size the textinput to the available row width so it doesn't
 	// overflow the container.

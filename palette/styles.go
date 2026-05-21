@@ -14,6 +14,14 @@ type Styles struct {
 	// Indent is the per-line left margin inside the container, as a
 	// literal string. Two spaces by default.
 	Indent string
+	// Prompt styles the leading mode-prompt glyph rendered in front of
+	// the input. Not applied while the spinner is in flight (the
+	// spinner owns its own styling).
+	Prompt lipgloss.Style
+	// Placeholder styles the textinput's placeholder text shown while
+	// the input is empty. Propagated into the underlying textinput's
+	// Focused / Blurred placeholder styles.
+	Placeholder lipgloss.Style
 	// SpinnerLabel styles the text next to the spinner glyph while a
 	// search is in flight.
 	SpinnerLabel lipgloss.Style
@@ -31,6 +39,8 @@ func DefaultStyles() Styles {
 		Container:    lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
 		Title:        lipgloss.NewStyle().Bold(true),
 		Indent:       "  ",
+		Prompt:       lipgloss.NewStyle(),
+		Placeholder:  lipgloss.NewStyle().Faint(true),
 		SpinnerLabel: lipgloss.NewStyle().Faint(true),
 		FacetHeader:  lipgloss.NewStyle().Faint(true),
 		Footer:       lipgloss.NewStyle().Faint(true),
