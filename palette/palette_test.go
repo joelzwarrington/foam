@@ -895,6 +895,71 @@ func TestMouseWheelMovesCursor(t *testing.T) {
 	}
 }
 
+func TestWithOnExecuteFiresInline(t *testing.T) {
+	cmds := []Item{Command{Name: "Open"}, Command{Name: "Save"}}
+
+	var seen Item
+	m := New(
+		withSeeded(cmds),
+		WithOnExecute(func(item Item) tea.Cmd {
+			seen = item
+			return func() tea.Msg { return runMarker{id: "hook"} }
+		}),
+	)
+	m.Focus()
+	m.input.SetValue(">")
+	m.cursor = 1 // "Save"
+
+	_, dispatch := m.Update(arrowKey(tea.KeyEnter))
+	if dispatch == nil {
+		t.Fatal("Enter returned nil cmd")
+	}
+	if seen == nil || seen.FilterValue() != "Save" {
+		t.Errorf("OnExecute callback saw item %v, want Save", seen)
+	}
+
+	// The hook's cmd is batched alongside SelectedMsg; drain the batch
+	// and assert both ride out of the same Update tick.
+	var sawSelected, sawHook bool
+	for _, msg := range drainBatch(dispatch) {
+		switch v := msg.(type) {
+		case SelectedMsg:
+			sawSelected = v.Item.FilterValue() == "Save"
+		case runMarker:
+			sawHook = v.id == "hook"
+		}
+	}
+	if !sawSelected {
+		t.Error("expected SelectedMsg in dispatch batch")
+	}
+	if !sawHook {
+		t.Error("expected OnExecute's runMarker cmd in dispatch batch")
+	}
+}
+
+// drainBatch invokes cmd and returns every message it produced. Used
+// to inspect the contents of a tea.BatchMsg in tests without coupling
+// to its internal layout. Tolerates a single-cmd (non-batched) return
+// by treating it as a singleton.
+func drainBatch(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var msgs []tea.Msg
+	for _, c := range batch {
+		if c == nil {
+			continue
+		}
+		msgs = append(msgs, c())
+	}
+	return msgs
+}
+
 func TestStylesPromptWrapsLeadingGlyph(t *testing.T) {
 	mode := Mode{
 		Name:   "tagged",
