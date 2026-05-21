@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/paginator"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // testItem is a minimal Item used to populate the model in tests.
@@ -890,6 +892,54 @@ func TestMouseWheelMovesCursor(t *testing.T) {
 	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	if m.cursor != 0 {
 		t.Errorf("wheel up x2: cursor = %d, want 0", m.cursor)
+	}
+}
+
+func TestStylesPromptWrapsLeadingGlyph(t *testing.T) {
+	mode := Mode{
+		Name:   "tagged",
+		Prompt: "» ",
+		Items:  func(_ Model, _ string) []Item { return nil },
+	}
+	m := New(WithModes(mode))
+	// A distinctive style we can pattern-match in the rendered output.
+	m.Styles.Prompt = lipgloss.NewStyle().Bold(true)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+
+	out := m.View()
+	// lipgloss bold opens with ESC[1m. The prompt glyph "» " must be
+	// wrapped by it; without the new Styles.Prompt application this
+	// assertion would fail.
+	if !strings.Contains(out, "\x1b[1m» ") {
+		t.Errorf("View() prompt glyph not styled with Styles.Prompt:\n%q", out)
+	}
+}
+
+func TestStylesPlaceholderReachesInput(t *testing.T) {
+	m := New(WithPlaceholder("type to search"))
+	m.Styles.Placeholder = lipgloss.NewStyle().Italic(true)
+	m.Focus()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+
+	out := m.View()
+	// Italic opens with ESC[3m. The placeholder text is rendered by
+	// the underlying textinput; Styles.Placeholder propagates through
+	// SetStyles each View call.
+	if !strings.Contains(out, "\x1b[3m") {
+		t.Errorf("View() placeholder not styled (no italic escape):\n%q", out)
+	}
+}
+
+func TestKeyMapNavigateLabelDrivesShortHelp(t *testing.T) {
+	m := New()
+	m.KeyMap.Navigate = key.NewBinding(
+		key.WithKeys("up", "down"),
+		key.WithHelp("↑↓", "select"),
+	)
+	bindings := m.ShortHelp()
+	if len(bindings) == 0 || bindings[0].Help().Desc != "select" {
+		t.Errorf("ShortHelp()[0].Help().Desc = %q, want %q",
+			bindings[0].Help().Desc, "select")
 	}
 }
 
