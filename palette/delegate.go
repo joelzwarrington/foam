@@ -105,7 +105,7 @@ func (d DefaultDelegate) Render(w io.Writer, m Model, index int, item Item) {
 		title = item.FilterValue()
 	}
 
-	isSelected := index == m.cursor
+	isSelected := m.IsSelected(index)
 	marker := s.UnselectedMarker
 	titleStyle := s.Title
 	descStyle := s.Description
@@ -115,8 +115,9 @@ func (d DefaultDelegate) Render(w io.Writer, m Model, index int, item Item) {
 		descStyle = s.SelectedDesc
 	}
 
-	if m.width > 0 {
-		avail := m.width - lipgloss.Width(marker)
+	width := m.Width()
+	if width > 0 {
+		avail := width - lipgloss.Width(marker)
 		if avail < 1 {
 			avail = 1
 		}
@@ -132,10 +133,10 @@ func (d DefaultDelegate) Render(w io.Writer, m Model, index int, item Item) {
 		descLine = strings.Repeat(" ", lipgloss.Width(marker)) + desc
 	}
 
-	if isSelected && m.width > 0 {
-		titleLine = titleStyle.Width(m.width).Render(titleLine)
+	if isSelected && width > 0 {
+		titleLine = titleStyle.Width(width).Render(titleLine)
 		if descLine != "" {
-			descLine = descStyle.Width(m.width).Render(descLine)
+			descLine = descStyle.Width(width).Render(descLine)
 		}
 	} else {
 		titleLine = titleStyle.Render(titleLine)

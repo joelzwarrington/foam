@@ -3,10 +3,12 @@ package palette
 import (
 	"bytes"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -102,8 +104,13 @@ func TestDefaultDelegateRender(t *testing.T) {
 				tc.setup(&d)
 			}
 			m := New()
+			// Simulate the render context the palette's View loop sets
+			// up before each delegate call: renderRow is the visible-row
+			// index of the selected item (page-local), renderWidth is
+			// the available column width for the row.
 			m.cursor = tc.cursor
-			m.width = tc.width
+			m.renderRow = tc.cursor
+			m.renderWidth = tc.width
 
 			var buf bytes.Buffer
 			d.Render(&buf, m, tc.index, tc.item)
@@ -132,5 +139,86 @@ func TestDefaultDelegateRender(t *testing.T) {
 				t.Errorf("render mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 		})
+	}
+}
+
+// captureDelegate is an external-style ItemDelegate that records each
+// Render call's view of the Model — the page-local selection check,
+// the row width, and the absolute Selected item / cursor. Used to
+// verify the palette's render-context contract for third-party
+// delegates.
+type captureDelegate struct {
+	width       int
+	selectedAt  []int // visible indices where IsSelected returned true
+	cursor      int
+	selectedVal string
+}
+
+func (d *captureDelegate) Height() int                        { return 1 }
+func (d *captureDelegate) Spacing() int                       { return 0 }
+func (d *captureDelegate) Update(_ tea.Msg, _ *Model) tea.Cmd { return nil }
+func (d *captureDelegate) Render(_ io.Writer, m Model, i int, _ Item) {
+	d.width = m.Width()
+	d.cursor = m.Cursor()
+	if sel := m.Selected(); sel != nil {
+		d.selectedVal = sel.FilterValue()
+	}
+	if m.IsSelected(i) {
+		d.selectedAt = append(d.selectedAt, i)
+	}
+}
+
+func TestRenderContextExposesSelectionAndWidth(t *testing.T) {
+	items := []Item{
+		Command{Name: "alpha"},
+		Command{Name: "bravo"},
+		Command{Name: "charlie"},
+		Command{Name: "delta"},
+		Command{Name: "echo"},
+	}
+	mode := Mode{
+		Name:  "letters",
+		Items: func(_ Model, _ string) []Item { return items },
+	}
+
+	d := &captureDelegate{}
+	m := New(
+		WithModes(mode),
+		WithDelegate(d),
+		WithPageSize(2),
+		WithHelp(false),
+	)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+
+	// Cursor on page 2 (third page; pageSize=2, items 0/1, 2/3, 4).
+	m.cursor = 4
+	_ = m.View()
+
+	if d.cursor != 4 {
+		t.Errorf("Cursor() = %d, want 4 (absolute)", d.cursor)
+	}
+	if d.selectedVal != "echo" {
+		t.Errorf("Selected().FilterValue() = %q, want %q", d.selectedVal, "echo")
+	}
+	if d.width <= 0 {
+		t.Errorf("Width() = %d, want >0", d.width)
+	}
+	// On page 2 we render a single row (item "echo") at visible index 0.
+	if len(d.selectedAt) != 1 || d.selectedAt[0] != 0 {
+		t.Errorf("IsSelected fired at %v, want [0]", d.selectedAt)
+	}
+
+	// Now flip to page 0 — the cursor is no longer in this page, so
+	// IsSelected should never fire.
+	d.selectedAt = nil
+	m.cursor = 0
+	_ = m.View()
+	if len(d.selectedAt) != 1 || d.selectedAt[0] != 0 {
+		t.Errorf("page 0 IsSelected fired at %v, want [0]", d.selectedAt)
+	}
+
+	// IsSelected returns false outside any Render call.
+	if m.IsSelected(0) {
+		t.Error("IsSelected(0) returned true outside Render context")
 	}
 }

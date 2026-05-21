@@ -135,6 +135,15 @@ type Model struct {
 	height      int
 	showHelp    bool
 
+	// render-context fields populated by View before each call to
+	// ItemDelegate.Render. renderRow is the visible-row index of the
+	// selected item in the current page (or < 0 when no selection
+	// hits this page / we're outside Render). renderWidth is the
+	// available width for the row content. Both are unexported; the
+	// delegate reads them via IsSelected() and Width().
+	renderRow   int
+	renderWidth int
+
 	KeyMap KeyMap
 	Styles Styles
 }
@@ -166,6 +175,7 @@ func New(opts ...Option) Model {
 		delegate:     NewDefaultDelegate(),
 		results:      map[string][]Item{},
 		facetResults: map[string][]Item{},
+		renderRow:    -1, // sentinel: IsSelected returns false outside Render
 		showHelp:     true,
 		KeyMap:       DefaultKeyMap(),
 		Styles:       DefaultStyles(),
@@ -461,6 +471,32 @@ func (m Model) InnerWidth() int {
 	return inner
 }
 
+// Cursor returns the absolute index of the highlighted item in the
+// currently visible items list. Stable across page changes and safe
+// to call from inside ItemDelegate.Render.
+func (m Model) Cursor() int { return m.cursor }
+
+// Width returns the column width available for rendering a row.
+// During ItemDelegate.Render this is the inner row width (set by the
+// palette for that render pass); elsewhere it falls back to
+// InnerWidth so callers can ask "how wide is my content area?" with
+// one method regardless of context.
+func (m Model) Width() int {
+	if m.renderWidth > 0 {
+		return m.renderWidth
+	}
+	return m.InnerWidth()
+}
+
+// IsSelected reports whether the given visible-row index in the
+// current page is the highlighted row. ItemDelegate.Render
+// implementations should use this instead of comparing against a raw
+// cursor field — it's correct on every page and zero outside a
+// Render call (so it's safe to call defensively).
+func (m Model) IsSelected(visibleIndex int) bool {
+	return m.renderRow >= 0 && visibleIndex == m.renderRow
+}
+
 // View composes the palette layout: an optional title, the text
 // input, and the visible items rendered through the configured
 // ItemDelegate, wrapped in the Container style. Items are passed the
@@ -531,13 +567,13 @@ func (m Model) View() string {
 	}
 
 	if len(pageItems) > 0 || desiredRows > 0 {
-		// Pass the inner width to the delegate so selected rows fill
-		// the full row, and translate cursor to page-local space so
-		// the delegate's "is this index selected?" check works against
-		// the sliced view.
+		// Populate the render-context fields the delegate reads via
+		// IsSelected() / Width(). cursor and width on rowModel stay
+		// unchanged so Model.Selected() / Cursor() / Width() return
+		// the same values inside Render that hosts see outside.
 		rowModel := m
-		rowModel.width = inner
-		rowModel.cursor = m.cursor - pageStart
+		rowModel.renderWidth = inner
+		rowModel.renderRow = m.cursor - pageStart
 
 		var lines []string
 		for i, item := range pageItems {
