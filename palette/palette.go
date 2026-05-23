@@ -135,13 +135,13 @@ type Model struct {
 	title        string
 	placeholder  string
 	emptyMessage string
-	cursor      int
-	pageSize    int
-	pending     bool // debounce scheduled but Search not yet dispatched
-	loading     bool // Search dispatched, awaiting SearchResultMsg
-	width       int
-	height      int
-	showHelp    bool
+	cursor       int
+	pageSize     int
+	pending      bool // debounce scheduled but Search not yet dispatched
+	loading      bool // Search dispatched, awaiting SearchResultMsg
+	width        int
+	height       int
+	showHelp     bool
 
 	// render-context fields populated by View before each call to
 	// ItemDelegate.Render. renderRow is the visible-row index of the
